@@ -34,7 +34,13 @@
   let lastIdentifiedAdminId: string | null = null;
   $effect(() => {
     const adminId = data?.admin?.id;
-    if (!adminId) return;
+    if (!adminId) {
+      if (lastIdentifiedAdminId !== null) {
+        reset();
+        lastIdentifiedAdminId = null;
+      }
+      return;
+    }
     const did = distinctIdForAdmin(adminId);
     if (did === lastIdentifiedAdminId) return;
     lastIdentifiedAdminId = did;

@@ -3,7 +3,7 @@
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
   import { ModeWatcher } from 'mode-watcher';
-  import { identify, distinctIdForCollaborator, capture } from '$lib/utils/posthog';
+  import { identify, distinctIdForCollaborator, capture, reset } from '$lib/utils/posthog';
   import '../app.css';
 
   interface Props {
@@ -19,6 +19,16 @@
   let lastIdentifiedId: string | null = null;
   $effect(() => {
     const u = data.user;
+    const pathname = $page.url.pathname;
+
+    if ((!u || u.role !== 'collaborator') && !pathname.startsWith('/admin')) {
+      if (lastIdentifiedId !== null) {
+        reset();
+        lastIdentifiedId = null;
+      }
+      return;
+    }
+
     if (!u || u.role !== 'collaborator') return;
     const did = distinctIdForCollaborator(u.id);
     if (did === lastIdentifiedId) return;
@@ -56,7 +66,7 @@
     const pathname = $page.url.pathname;
     const routeGroup = routeGroupFromPath(pathname);
     const distinctRole =
-      routeGroup === 'admin'
+      data.user?.role === 'admin'
         ? 'admin'
         : data.user?.role === 'collaborator'
           ? 'collaborator'

@@ -130,17 +130,29 @@ export const handle: Handle = async ({ event, resolve }) => {
     headers.delete('host');
     headers.delete('connection');
     headers.delete('content-length');
+    headers.delete('accept-encoding');
     const clientIp = event.request.headers.get('x-forwarded-for') || event.getClientAddress();
     if (clientIp) headers.set('x-forwarded-for', clientIp);
 
     const method = event.request.method.toUpperCase();
     const hasBody = method !== 'GET' && method !== 'HEAD';
     const body = hasBody ? Buffer.from(await event.request.arrayBuffer()) : undefined;
-    return fetch(url.toString(), {
+    const proxied = await fetch(url.toString(), {
       method,
       headers,
       body,
       redirect: 'manual',
+    });
+
+    const responseHeaders = new Headers(proxied.headers);
+    responseHeaders.delete('content-encoding');
+    responseHeaders.delete('content-length');
+    responseHeaders.delete('transfer-encoding');
+
+    return new Response(proxied.body, {
+      status: proxied.status,
+      statusText: proxied.statusText,
+      headers: responseHeaders
     });
   }
 
