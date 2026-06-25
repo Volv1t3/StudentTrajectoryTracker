@@ -1,0 +1,34 @@
+{
+  "name": "student-trajectory-tracker-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "hash:password": "node scripts/generate-password-hash.js"
+  },
+  "dependencies": {
+    "@2toad/profanity": "^3.3.0",
+    "@supabase/supabase-js": "^2",
+    "bcrypt": "^5",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2",
+    "dotenv": "^16",
+    "express": "^5",
+    "express-rate-limit": "^7",
+    "helmet": "^7",
+    "jsonwebtoken": "^9",
+    "morgan": "^1",
+    "multer": "^2",
+    "mysql2": "^3",
+    "posthog-node": "^5.38.2",
+    "resend": "^3",
+    "slugify": "^1",
+    "uuid": "^9",
+    "zod": "^3"
+  },
+  "devDependencies": {
+    "nodemon": "^3"
+  }
+}

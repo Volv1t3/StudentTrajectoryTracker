@@ -1,0 +1,82 @@
+#-------------------------------------
+# Docker Compose — Student Trajectory Tracker
+#-------------------------------------
+
+services:
+  frontend:
+    build:
+      context: ../javascript/frontend
+      dockerfile: Dockerfile
+      args:
+        PUBLIC_POSTHOG_KEY: ${PUBLIC_POSTHOG_KEY}
+        PUBLIC_POSTHOG_HOST: ${PUBLIC_POSTHOG_HOST}
+        VITE_API_URL: /api
+    container_name: stt_frontend_module
+    ports:
+      - '33761:3000'
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # SvelteKit server-side: reach backend over the internal Docker network
+      API_BASE_URL: http://stt_backend_module:34761
+      ORIGIN: http://localhost:33761
+    env_file:
+      - ../../res/envs/frontend.env
+    networks:
+      - docker-network
+
+  backend:
+    build:
+      context: ../javascript/backend
+      dockerfile: Dockerfile
+    container_name: stt_backend_module
+    ports:
+      - '34761:34761'
+    depends_on:
+      mysql_database:
+        condition: service_healthy
+    restart: unless-stopped
+    env_file:
+      - ../../res/envs/backend.env
+    environment:
+      # Override SITE_URL so CORS allows requests from the frontend container
+      SITE_URL: http://localhost:33761
+    networks:
+      - docker-network
+
+  mysql_database:
+    image: mysql:9
+    container_name: stt_mysql_database
+    restart: unless-stopped
+    ports:
+      - '35761:35761'
+    env_file:
+      - ../../res/envs/database.env
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../sql/db/db_init_ordered.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - docker-network
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-P', '35761']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 10G
+          cpus: '4'
+        reservations:
+          memory: 4G
+          cpus: '2'
+    command: --port=35761
+
+networks:
+  docker-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local

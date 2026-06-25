@@ -1,0 +1,9 @@
+{
+  "dependencies": {
+    "@2toad/profanity": "^3.3.0",
+    "@lucide/svelte": "^1.18.0",
+    "lucide-icons-svelte": "^0.1.0",
+    "npm": "^11.17.0",
+    "uninstall": "^0.0.0"
+  }
+}

@@ -1,0 +1,426 @@
+@import "tailwindcss";
+
+@theme {
+  --color-red-50: #fde8e8;
+  --color-red-100: #fbd0d0;
+  --color-red-200: #f8a8a8;
+  --color-red-300: #f47a7a;
+  --color-red-400: #ef4d4d;
+  --color-red: #ef2b2d;
+  --color-red-500: #ef2b2d;
+  --color-red-600: #c9191b;
+  --color-red-700: #a31516;
+  --color-red-hover: #c9191b;
+  --color-red-light: #fde8e8;
+  --color-green-50: #f0fdf4;
+  --color-green-100: #dcfce7;
+  --color-green-200: #bbf7d0;
+  --color-green-500: #22c55e;
+  --color-green-600: #16a34a;
+  --color-green-700: #15803d;
+  --color-green-800: #166534;
+  --color-green-900: #14532d;
+  --color-blue-50: #eff6ff;
+  --color-blue-100: #dbeafe;
+  --color-blue-200: #bfdbfe;
+  --color-blue-500: #3b82f6;
+  --color-blue-700: #1d4ed8;
+  --color-blue-800: #1e40af;
+  --color-blue-900: #1e3a5f;
+  --color-crimson: #7c2d23;
+  --color-crimson-hover: #5e1f17;
+  --color-warm-white: #faf3e9;
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #ef2b2d;
+  --color-info: #0369a1;
+  --color-text-on-dark: #faf3e9;
+  --color-text-muted-on-dark: #e8ddd0;
+  --color-neutral-50: #f9f1e5;
+  --color-neutral-100: #f5ede0;
+  --color-neutral-200: #e8ddd0;
+  --color-neutral-300: #d4c8b8;
+  --color-neutral-400: #a89480;
+  --color-neutral-500: #9a8a78;
+  --color-neutral-600: #6b5a4e;
+  --color-neutral-700: #4d3d32;
+  --color-neutral-800: #33261d;
+  --color-neutral-900: #1a0f0b;
+  --font-heading: 'Cinzel', Georgia, serif;
+  --font-subheading: 'Goudy Bookletter 1911', Georgia, serif;
+  --font-sans: 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+  --spiral-color: #ffffff;
+}
+
+:root {
+  --color-red-50: #fde8e8;
+  --color-red-100: #fbd0d0;
+  --color-red-200: #f8a8a8;
+  --color-red-300: #f47a7a;
+  --color-red-400: #ef4d4d;
+  --color-red: #ef2b2d;
+  --color-red-500: #ef2b2d;
+  --color-red-600: #c9191b;
+  --color-red-700: #a31516;
+  --color-red-hover: #c9191b;
+  --color-red-light: #fde8e8;
+  --color-crimson: #7c2d23;
+  --color-crimson-hover: #5e1f17;
+  --color-warm-white: #faf3e9;
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-neutral-50: #f9f1e5;
+  --color-neutral-100: #f5ede0;
+  --color-neutral-200: #e8ddd0;
+  --color-neutral-300: #d4c8b8;
+  --color-neutral-400: #a89480;
+  --color-neutral-500: #9a8a78;
+  --color-neutral-600: #6b5a4e;
+  --color-neutral-700: #4d3d32;
+  --color-neutral-800: #33261d;
+  --color-neutral-900: #1a0f0b;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #ef2b2d;
+  --color-info: #0369a1;
+  --color-text-on-dark: #ffffff;
+  --color-text-muted-on-dark: #ffffff;
+  --font-heading: 'Cinzel', Georgia, serif;
+  --font-subheading: 'Goudy Bookletter 1911', Georgia, serif;
+  --font-sans: 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+
+  --spiral-color: #000000;
+  --bg-primary: #faf3e9;
+  --bg-surface: #ffffff;
+  --bg-secondary: #f5ede0;
+  --text-primary: #1a0f0b;
+  --text-secondary: #6b5a4e;
+  --text-muted: #a89480;
+  --border: #e8ddd0;
+  --accent: #ef2b2d;
+  --accent-hover: #c9191b;
+  --accent-light: #fde8e8;
+  --deep: #7c2d23;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]){
+    --bg-primary: #000000;
+    --bg-surface: #111111;
+    --bg-secondary: #0a0a0a;
+    --text-primary: #faf3e9;
+    --text-secondary: #d4c8b8;
+    --text-muted: #ffffff;
+    --border: #222222;
+    --accent: #ff4d4d;
+    --accent-hover: #e63e3e;
+    --accent-light: rgba(239, 43, 45, 0.15);
+    --deep: #5e1f17;
+    --spiral-color: #000000;
+
+    --color-neutral-50: #141414;
+    --color-neutral-100: #1a1a1a;
+    --color-neutral-200: #262626;
+    --color-neutral-300: #444444;
+    --color-neutral-400: #888888;
+    --color-neutral-500: #aaaaaa;
+    --color-neutral-600: #cccccc;
+    --color-neutral-700: #e0e0e0;
+    --color-neutral-800: #f0f0f0;
+    --color-neutral-900: #faf3e9;
+    --color-warm-white: #faf3e9;
+    --color-crimson: #5e1f17;
+    --color-red: #ff4d4d;
+    --color-red-50: rgba(239, 43, 45, 0.15);
+    --color-red-100: rgba(239, 43, 45, 0.2);
+    --color-red-200: rgba(239, 43, 45, 0.3);
+    --color-red-300: #f47a7a;
+    --color-red-400: #ef4d4d;
+    --color-red-500: #ff4d4d;
+    --color-red-600: #e63e3e;
+    --color-red-700: #ff6b6b;
+    --color-red-hover: #e63e3e;
+    --color-red-light: rgba(239, 43, 45, 0.15);
+    --color-green-50: rgba(34, 197, 94, 0.15);
+    --color-green-100: rgba(34, 197, 94, 0.2);
+    --color-green-200: rgba(34, 197, 94, 0.3);
+    --color-green-500: #4ade80;
+    --color-green-600: #22c55e;
+    --color-green-700: #86efac;
+    --color-green-800: #bbf7d0;
+    --color-green-900: #dcfce7;
+    --color-blue-50: rgba(59, 130, 246, 0.15);
+    --color-blue-100: rgba(59, 130, 246, 0.2);
+    --color-blue-200: rgba(59, 130, 246, 0.3);
+    --color-blue-500: #60a5fa;
+    --color-blue-700: #93bbfd;
+    --color-blue-800: #bfdbfe;
+    --color-blue-900: #dbeafe;
+    --color-crimson-hover: #4a1811;
+  }
+}
+
+[data-theme="dark"] {
+  --bg-primary: #000000;
+  --bg-surface: #111111;
+  --bg-secondary: #0a0a0a;
+  --text-primary: #faf3e9;
+  --text-secondary: #d4c8b8;
+  --text-muted: #ffffff;
+  --border: #222222;
+  --accent: #ff4d4d;
+  --accent-hover: #e63e3e;
+  --accent-light: rgba(239, 43, 45, 0.15);
+  --deep: #5e1f17;
+
+  --color-neutral-50: #141414;
+  --color-neutral-100: #1a1a1a;
+  --color-neutral-200: #262626;
+  --color-neutral-300: #444444;
+  --color-neutral-400: #888888;
+  --color-neutral-500: #aaaaaa;
+  --color-neutral-600: #cccccc;
+  --color-neutral-700: #e0e0e0;
+  --color-neutral-800: #f0f0f0;
+  --color-neutral-900: #faf3e9;
+  --color-warm-white: #faf3e9;
+  --color-crimson: #5e1f17;
+  --color-red: #ff4d4d;
+  --color-red-50: rgba(239, 43, 45, 0.15);
+  --color-red-100: rgba(239, 43, 45, 0.2);
+  --color-red-200: rgba(239, 43, 45, 0.3);
+  --color-red-300: #f47a7a;
+  --color-red-400: #ef4d4d;
+  --color-red-500: #ff4d4d;
+  --color-red-600: #e63e3e;
+  --color-red-700: #ff6b6b;
+  --color-red-hover: #e63e3e;
+  --color-red-light: rgba(239, 43, 45, 0.15);
+  --color-green-50: rgba(34, 197, 94, 0.15);
+  --color-green-100: rgba(34, 197, 94, 0.2);
+  --color-green-200: rgba(34, 197, 94, 0.3);
+  --color-green-500: #4ade80;
+  --color-green-600: #22c55e;
+  --color-green-700: #86efac;
+  --color-green-800: #bbf7d0;
+  --color-green-900: #dcfce7;
+  --color-blue-50: rgba(59, 130, 246, 0.15);
+  --color-blue-100: rgba(59, 130, 246, 0.2);
+  --color-blue-200: rgba(59, 130, 246, 0.3);
+  --color-blue-500: #60a5fa;
+  --color-blue-700: #93bbfd;
+  --color-blue-800: #bfdbfe;
+  --color-blue-900: #dbeafe;
+  --color-text-on-dark: #ffffff;
+  --color-text-on-dark-muted: #ffffff;
+  --color-crimson-hover: #4a1811;
+  --spiral-color: #ffffff;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-heading);
+}
+
+h4, h5, h6, .nav-link {
+  font-family: var(--font-subheading);
+}
+
+html {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+.bg-surface {
+  background: var(--bg-surface);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.hero-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* ── Floating paths pulse for hover/active states ── */
+.nav-link {
+  position: relative;
+  border-radius: 0.5rem;
+  transition: color 0.15s ease;
+}
+
+.nav-link::before {
+  content: '';
+  position: absolute;
+  inset: -4px -10px;
+  border-radius: 0.5rem;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 12%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 4%, transparent) 50%,
+    transparent 100%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.nav-link:hover::before,
+.nav-link.active::before {
+  opacity: 1;
+  animation: path-pulse 3s ease-in-out infinite;
+}
+
+@media (prefers-color-scheme: dark) {
+  .nav-link::before {
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--accent) 18%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 6%, transparent) 50%,
+      transparent 100%
+    );
+  }
+}
+
+html.dark .nav-link::before {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 18%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 6%, transparent) 50%,
+    transparent 100%
+  );
+}
+
+/* ── Button path-pulse hover/active state ── */
+.btn-grid {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-grid::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 14%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 5%, transparent) 50%,
+    transparent 100%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.btn-grid:hover::before,
+.btn-grid:active::before {
+  opacity: 1;
+  animation: path-pulse 4s ease-in-out infinite;
+}
+
+.btn-grid > * {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+  .btn-grid::before {
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--accent) 20%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 8%, transparent) 50%,
+      transparent 100%
+    );
+  }
+}
+
+html.dark .btn-grid::before {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 20%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 8%, transparent) 50%,
+    transparent 100%
+  );
+}
+
+/* ── Mobile drawer nav link ── */
+.drawer-link {
+  position: relative;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.drawer-link::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 12%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 4%, transparent) 50%,
+    transparent 100%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.drawer-link:hover::before,
+.drawer-link.active::before {
+  opacity: 1;
+  animation: path-pulse 3s ease-in-out infinite;
+}
+
+.drawer-link > * {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+  .drawer-link::before {
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--accent) 18%, transparent) 0%,
+      color-mix(in srgb, var(--accent) 6%, transparent) 50%,
+      transparent 100%
+    );
+  }
+}
+
+html.dark .drawer-link::before {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 18%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 6%, transparent) 50%,
+    transparent 100%
+  );
+}
+
+/* ── Keyframe: accent pulse ── */
+@keyframes path-pulse {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
