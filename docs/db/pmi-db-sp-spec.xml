@@ -1,0 +1,2193 @@
+<dlab-backend-spec version="1.0">
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       0. CONVENTIONS
+       ═══════════════════════════════════════════════════════════════════ -->
+  <conventions>
+    <convention name="stored-procedure-prefix">
+      All stored procedures use the prefix sp_ followed by domain_action.
+      Example: sp_auth_login, sp_application_approve.
+    </convention>
+    <convention name="transaction-boundary">
+      Procedures that touch more than one table MUST be wrapped in a
+      BEGIN ... COMMIT / ROLLBACK block. The caller never commits manually.
+    </convention>
+    <convention name="audit-log">
+      Every CREATE / UPDATE / DELETE / status-change writes one row to
+      audit_log via the sp_audit_write helper. Never skip it.
+    </convention>
+    <convention name="status-machine">
+      All ENUM transitions are validated inside the stored procedure.
+      The application layer sends the desired new status; the procedure
+      rejects invalid transitions with SIGNAL SQLSTATE '45000'.
+    </convention>
+    <convention name="null-semantics">
+      Nullable columns are always returned as SQL NULL.
+      The service layer maps NULL → null (JSON).  Never coerce to "".
+    </convention>
+    <convention name="slug-generation">
+      Slugs are generated in the SvelteKit server layer before calling
+      the INSERT procedure, using: title.toLowerCase().replace(/\\s+/g,'-')
+      .replace(/[^a-z0-9-]/g,'').substring(0,250)  + '-' + Date.now()
+    </convention>
+    <convention name="password-hashing">
+      Passwords are hashed with bcrypt (cost 12) in the SvelteKit service
+      layer BEFORE passing to any stored procedure. Never pass plaintext.
+    </convention>
+    <convention name="jwt">
+      Access tokens: HS256, 15 min TTL, payload { sub, role, userId }.
+      Refresh tokens: stored as SHA-256 hash in refresh_tokens.token_hash.
+      Token rotation on every /auth/refresh call.
+    </convention>
+  </conventions>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       1. SHARED HELPER PROCEDURES
+       ═══════════════════════════════════════════════════════════════════ -->
+  <procedures group="helpers">
+
+    <!-- ─────────────────────────────────────────────────────────────── -->
+    <procedure name="sp_audit_write">
+      <description>
+        Inserts a single row into audit_log. Called by all other procedures
+        that modify data. Never called directly by the application layer.
+      </description>
+      <parameters>
+        <param name="p_actor_type"   type="ENUM('administrator','system')" nullable="false"/>
+        <param name="p_actor_id"     type="INT UNSIGNED"                   nullable="true"  note="NULL when actor_type = system"/>
+        <param name="p_action"       type="VARCHAR(50)"                    nullable="false" note="Matches audit_log.action ENUM"/>
+        <param name="p_entity_type"  type="VARCHAR(100)"                   nullable="false"/>
+        <param name="p_entity_id"    type="INT UNSIGNED"                   nullable="false"/>
+        <param name="p_prev_value"   type="JSON"                           nullable="true"/>
+        <param name="p_new_value"    type="JSON"                           nullable="true"/>
+        <param name="p_description"  type="VARCHAR(500)"                   nullable="true"/>
+        <param name="p_ip_address"   type="VARCHAR(45)"                    nullable="true"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_audit_write(
+  IN p_actor_type   ENUM('administrator','system'),
+  IN p_actor_id     INT UNSIGNED,
+  IN p_action       VARCHAR(50),
+  IN p_entity_type  VARCHAR(100),
+  IN p_entity_id    INT UNSIGNED,
+  IN p_prev_value   JSON,
+  IN p_new_value    JSON,
+  IN p_description  VARCHAR(500),
+  IN p_ip_address   VARCHAR(45)
+)
+BEGIN
+  INSERT INTO audit_log (
+    actor_type, actor_id, action,
+    entity_type, entity_id,
+    previous_value, new_value,
+    description, ip_address, created_at
+  ) VALUES (
+    p_actor_type, p_actor_id, p_action,
+    p_entity_type, p_entity_id,
+    p_prev_value, p_new_value,
+    p_description, p_ip_address, NOW()
+  );
+END;
+      ]]></sql>
+    </procedure>
+
+    <!-- ─────────────────────────────────────────────────────────────── -->
+    <procedure name="sp_collaborator_set_status">
+      <description>
+        Updates trajectory_status on a collaborator row, enforcing the
+        allowed transition machine. Writes an audit entry automatically.
+        Called internally by other procedures — never directly by the API.
+
+        Allowed transitions:
+          nuevo        → en_revision | inactivo
+          en_revision  → contactado  | inactivo
+          contactado   → vinculado   | inactivo
+          vinculado    → inactivo
+          inactivo     → en_revision  (re-activation path)
+      </description>
+      <parameters>
+        <param name="p_collaborator_id" type="INT UNSIGNED" nullable="false"/>
+        <param name="p_new_status"      type="VARCHAR(20)"  nullable="false"/>
+        <param name="p_actor_id"        type="INT UNSIGNED" nullable="true"/>
+        <param name="p_ip_address"      type="VARCHAR(45)"  nullable="true"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_collaborator_set_status(
+  IN p_collaborator_id INT UNSIGNED,
+  IN p_new_status      VARCHAR(20),
+  IN p_actor_id        INT UNSIGNED,
+  IN p_ip_address      VARCHAR(45)
+)
+BEGIN
+  DECLARE v_current_status VARCHAR(20);
+  DECLARE v_allowed        TINYINT DEFAULT 0;
+
+  SELECT trajectory_status INTO v_current_status
+  FROM collaborators
+  WHERE id = p_collaborator_id
+  FOR UPDATE;
+
+  IF v_current_status IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Collaborator not found';
+  END IF;
+
+  -- Validate transition
+  SET v_allowed = CASE
+    WHEN v_current_status = 'nuevo'       AND p_new_status IN ('en_revision','inactivo')  THEN 1
+    WHEN v_current_status = 'en_revision' AND p_new_status IN ('contactado','inactivo')   THEN 1
+    WHEN v_current_status = 'contactado'  AND p_new_status IN ('vinculado','inactivo')    THEN 1
+    WHEN v_current_status = 'vinculado'   AND p_new_status IN ('inactivo')                THEN 1
+    WHEN v_current_status = 'inactivo'    AND p_new_status IN ('en_revision')             THEN 1
+    ELSE 0
+  END;
+
+  IF v_allowed = 0 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = CONCAT('Invalid transition: ', v_current_status, ' → ', p_new_status);
+  END IF;
+
+  UPDATE collaborators
+  SET trajectory_status = p_new_status,
+      updated_at        = NOW()
+  WHERE id = p_collaborator_id;
+
+  CALL sp_audit_write(
+    'administrator', p_actor_id, 'status_change',
+    'collaborators', p_collaborator_id,
+    JSON_OBJECT('trajectory_status', v_current_status),
+    JSON_OBJECT('trajectory_status', p_new_status),
+    CONCAT('Status changed: ', v_current_status, ' → ', p_new_status),
+    p_ip_address
+  );
+END;
+      ]]></sql>
+    </procedure>
+
+  </procedures>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       2. AUTHENTICATION PROCEDURES
+       ═══════════════════════════════════════════════════════════════════ -->
+  <procedures group="auth">
+
+    <procedure name="sp_auth_store_refresh_token">
+      <description>
+        Inserts a new refresh token record. Called after any successful
+        login or token rotation. Old tokens for the same user+device
+        should be revoked by the service layer before calling this.
+      </description>
+      <parameters>
+        <param name="p_user_type"   type="ENUM('administrator','collaborator')" nullable="false"/>
+        <param name="p_user_id"     type="INT UNSIGNED"   nullable="false"/>
+        <param name="p_token_hash"  type="VARCHAR(255)"   nullable="false" note="SHA-256 of the raw refresh token"/>
+        <param name="p_expires_at"  type="TIMESTAMP"      nullable="false"/>
+        <param name="p_user_agent"  type="VARCHAR(512)"   nullable="true"/>
+        <param name="p_ip_address"  type="VARCHAR(45)"    nullable="true"/>
+      </parameters>
+      <returns>p_token_id INT UNSIGNED — the new refresh_tokens.id</returns>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_auth_store_refresh_token(
+  IN  p_user_type   ENUM('administrator','collaborator'),
+  IN  p_user_id     INT UNSIGNED,
+  IN  p_token_hash  VARCHAR(255),
+  IN  p_expires_at  TIMESTAMP,
+  IN  p_user_agent  VARCHAR(512),
+  IN  p_ip_address  VARCHAR(45),
+  OUT p_token_id    INT UNSIGNED
+)
+BEGIN
+  INSERT INTO refresh_tokens (
+    user_type, user_id, token_hash,
+    expires_at, is_revoked, issued_at,
+    user_agent, ip_address
+  ) VALUES (
+    p_user_type, p_user_id, p_token_hash,
+    p_expires_at, FALSE, NOW(),
+    p_user_agent, p_ip_address
+  );
+  SET p_token_id = LAST_INSERT_ID();
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_auth_revoke_token">
+      <description>
+        Revokes a single refresh token by its hash. Used on logout and
+        token rotation. Does not error if token not found (idempotent).
+      </description>
+      <parameters>
+        <param name="p_token_hash" type="VARCHAR(255)" nullable="false"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_auth_revoke_token(IN p_token_hash VARCHAR(255))
+BEGIN
+  UPDATE refresh_tokens
+  SET    is_revoked = TRUE
+  WHERE  token_hash = p_token_hash;
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_auth_revoke_all_user_tokens">
+      <description>
+        Revokes ALL active refresh tokens for a given user.
+        Used on password change and admin deactivation.
+      </description>
+      <parameters>
+        <param name="p_user_type" type="ENUM('administrator','collaborator')" nullable="false"/>
+        <param name="p_user_id"   type="INT UNSIGNED" nullable="false"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_auth_revoke_all_user_tokens(
+  IN p_user_type ENUM('administrator','collaborator'),
+  IN p_user_id   INT UNSIGNED
+)
+BEGIN
+  UPDATE refresh_tokens
+  SET    is_revoked = TRUE
+  WHERE  user_type  = p_user_type
+    AND  user_id    = p_user_id
+    AND  is_revoked = FALSE;
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_auth_validate_refresh_token">
+      <description>
+        Validates a refresh token by hash. Returns the token record only if
+        it exists, is not revoked, and has not expired. Returns empty result
+        set if invalid — the service layer must treat empty result as 401.
+      </description>
+      <parameters>
+        <param name="p_token_hash" type="VARCHAR(255)" nullable="false"/>
+      </parameters>
+      <returns>
+        Single row: id, user_type, user_id, expires_at, issued_at
+      </returns>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_auth_validate_refresh_token(IN p_token_hash VARCHAR(255))
+BEGIN
+  SELECT id, user_type, user_id, expires_at, issued_at
+  FROM   refresh_tokens
+  WHERE  token_hash = p_token_hash
+    AND  is_revoked  = FALSE
+    AND  expires_at  > NOW();
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_auth_set_password">
+      <description>
+        Sets or updates the password_hash for a collaborator. Used during
+        account activation and password reset flows. Does NOT validate the
+        old password — that must be done in the service layer first.
+        Revokes all existing refresh tokens on completion (force re-login).
+      </description>
+      <parameters>
+        <param name="p_collaborator_id" type="INT UNSIGNED" nullable="false"/>
+        <param name="p_password_hash"   type="VARCHAR(255)" nullable="false" note="bcrypt hash"/>
+        <param name="p_ip_address"      type="VARCHAR(45)"  nullable="true"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_auth_set_password(
+  IN p_collaborator_id INT UNSIGNED,
+  IN p_password_hash   VARCHAR(255),
+  IN p_ip_address      VARCHAR(45)
+)
+BEGIN
+  START TRANSACTION;
+    UPDATE collaborators
+    SET    password_hash = p_password_hash,
+           updated_at    = NOW()
+    WHERE  id            = p_collaborator_id;
+
+    CALL sp_auth_revoke_all_user_tokens('collaborator', p_collaborator_id);
+
+    CALL sp_audit_write(
+      'system', NULL, 'update',
+      'collaborators', p_collaborator_id,
+      NULL, JSON_OBJECT('password_hash', 'REDACTED'),
+      'Password set / changed',
+      p_ip_address
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+  </procedures>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       3. COLLABORATOR PROCEDURES
+       ═══════════════════════════════════════════════════════════════════ -->
+  <procedures group="collaborators">
+
+    <procedure name="sp_collaborator_register">
+      <description>
+        Inserts a new collaborator row from the public interest form.
+        password_hash is NULL at this stage — set only after admin approval
+        via the activation flow.  Also inserts availability_slots rows and
+        collaborator_tags rows in the same transaction.
+        Triggers: service layer sends admin-new-signup email after commit.
+      </description>
+      <parameters>
+        <param name="p_first_name"              type="VARCHAR(100)"  nullable="false"/>
+        <param name="p_middle_name"             type="VARCHAR(100)"  nullable="true"/>
+        <param name="p_last_name"               type="VARCHAR(100)"  nullable="false"/>
+        <param name="p_second_last_name"        type="VARCHAR(100)"  nullable="true"/>
+        <param name="p_personal_email"          type="VARCHAR(255)"  nullable="false"/>
+        <param name="p_usfq_email"              type="VARCHAR(255)"  nullable="true"/>
+        <param name="p_phone_number"            type="VARCHAR(20)"   nullable="true"/>
+        <param name="p_date_of_birth"           type="DATE"          nullable="true"/>
+        <param name="p_major"                   type="VARCHAR(150)"  nullable="false"/>
+        <param name="p_current_university_year" type="TINYINT UNSIGNED" nullable="false"/>
+        <param name="p_expected_graduation_year" type="YEAR"         nullable="false"/>
+        <param name="p_experience_description"  type="TEXT"          nullable="true"/>
+        <param name="p_motivation_description"  type="TEXT"          nullable="true"/>
+        <param name="p_interest_in_training"    type="BOOLEAN"       nullable="false" default="FALSE"/>
+        <param name="p_interest_in_research"    type="BOOLEAN"       nullable="false" default="FALSE"/>
+        <param name="p_interest_in_fabrication" type="BOOLEAN"       nullable="false" default="FALSE"/>
+        <param name="p_intake_source"           type="VARCHAR(100)"  nullable="true"/>
+        <param name="p_tag_ids"                 type="JSON"          nullable="true"  note="JSON array of tag IDs e.g. [1,2,3]"/>
+        <param name="p_availability_slots"      type="JSON"          nullable="true"  note="JSON array of {day_of_week, time_from, time_to, notes}"/>
+      </parameters>
+      <returns>p_collaborator_id INT UNSIGNED</returns>
+      <error-signals>
+        <signal code="45001" condition="Duplicate personal_email"/>
+        <signal code="45002" condition="Duplicate usfq_email"/>
+      </error-signals>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_collaborator_register(
+  IN  p_first_name               VARCHAR(100),
+  IN  p_middle_name              VARCHAR(100),
+  IN  p_last_name                VARCHAR(100),
+  IN  p_second_last_name         VARCHAR(100),
+  IN  p_personal_email           VARCHAR(255),
+  IN  p_usfq_email               VARCHAR(255),
+  IN  p_phone_number             VARCHAR(20),
+  IN  p_date_of_birth            DATE,
+  IN  p_major                    VARCHAR(150),
+  IN  p_current_university_year  TINYINT UNSIGNED,
+  IN  p_expected_graduation_year YEAR,
+  IN  p_experience_description   TEXT,
+  IN  p_motivation_description   TEXT,
+  IN  p_interest_in_training     BOOLEAN,
+  IN  p_interest_in_research     BOOLEAN,
+  IN  p_interest_in_fabrication  BOOLEAN,
+  IN  p_intake_source            VARCHAR(100),
+  IN  p_tag_ids                  JSON,
+  IN  p_availability_slots       JSON,
+  OUT p_collaborator_id          INT UNSIGNED
+)
+BEGIN
+  DECLARE v_tag_count  INT DEFAULT 0;
+  DECLARE v_slot_count INT DEFAULT 0;
+  DECLARE v_i          INT DEFAULT 0;
+  DECLARE v_tag_id     INT UNSIGNED;
+  DECLARE v_day        VARCHAR(20);
+  DECLARE v_from       TIME;
+  DECLARE v_to         TIME;
+  DECLARE v_notes      VARCHAR(200);
+
+  -- Duplicate email guard
+  IF EXISTS (SELECT 1 FROM collaborators WHERE personal_email = p_personal_email) THEN
+    SIGNAL SQLSTATE '45001' SET MESSAGE_TEXT = 'personal_email already registered';
+  END IF;
+
+  IF p_usfq_email IS NOT NULL AND
+     EXISTS (SELECT 1 FROM collaborators WHERE usfq_email = p_usfq_email) THEN
+    SIGNAL SQLSTATE '45002' SET MESSAGE_TEXT = 'usfq_email already registered';
+  END IF;
+
+  START TRANSACTION;
+
+    INSERT INTO collaborators (
+      first_name, middle_name, last_name, second_last_name,
+      personal_email, usfq_email, phone_number, date_of_birth,
+      major, current_university_year, expected_graduation_year,
+      experience_description, motivation_description,
+      interest_in_training, interest_in_research, interest_in_fabrication,
+      trajectory_status, profile_complete, intake_source,
+      created_at, updated_at
+    ) VALUES (
+      p_first_name, p_middle_name, p_last_name, p_second_last_name,
+      p_personal_email, p_usfq_email, p_phone_number, p_date_of_birth,
+      p_major, p_current_university_year, p_expected_graduation_year,
+      p_experience_description, p_motivation_description,
+      p_interest_in_training, p_interest_in_research, p_interest_in_fabrication,
+      'nuevo', FALSE, p_intake_source,
+      NOW(), NOW()
+    );
+
+    SET p_collaborator_id = LAST_INSERT_ID();
+
+    -- Insert tags
+    IF JSON_LENGTH(p_tag_ids) > 0 THEN
+      SET v_tag_count = JSON_LENGTH(p_tag_ids);
+      WHILE v_i < v_tag_count DO
+        SET v_tag_id = JSON_EXTRACT(p_tag_ids, CONCAT('$[', v_i, ']'));
+        INSERT IGNORE INTO collaborator_tags (collaborator_id, tag_id, created_at)
+        VALUES (p_collaborator_id, v_tag_id, NOW());
+        SET v_i = v_i + 1;
+      END WHILE;
+    END IF;
+
+    -- Insert availability slots
+    SET v_i = 0;
+    IF p_availability_slots IS NOT NULL AND JSON_LENGTH(p_availability_slots) > 0 THEN
+      SET v_slot_count = JSON_LENGTH(p_availability_slots);
+      WHILE v_i < v_slot_count DO
+        SET v_day   = JSON_UNQUOTE(JSON_EXTRACT(p_availability_slots, CONCAT('$[', v_i, '].day_of_week')));
+        SET v_from  = JSON_UNQUOTE(JSON_EXTRACT(p_availability_slots, CONCAT('$[', v_i, '].time_from')));
+        SET v_to    = JSON_UNQUOTE(JSON_EXTRACT(p_availability_slots, CONCAT('$[', v_i, '].time_to')));
+        SET v_notes = JSON_UNQUOTE(JSON_EXTRACT(p_availability_slots, CONCAT('$[', v_i, '].notes')));
+        INSERT INTO availability_slots (collaborator_id, day_of_week, time_from, time_to, notes)
+        VALUES (p_collaborator_id, v_day, v_from, v_to, v_notes);
+        SET v_i = v_i + 1;
+      END WHILE;
+    END IF;
+
+    CALL sp_audit_write(
+      'system', NULL, 'create',
+      'collaborators', p_collaborator_id,
+      NULL,
+      JSON_OBJECT('trajectory_status','nuevo','personal_email', p_personal_email),
+      'New collaborator registered via interest form',
+      NULL
+    );
+
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_collaborator_update_profile">
+      <description>
+        Updates editable profile fields for a collaborator. Only fields
+        passed as non-NULL are written (all-or-nothing per call — the
+        service layer passes current values for unchanged fields).
+        profile_complete is re-evaluated automatically.
+
+        profile_complete = TRUE when:
+          major, current_university_year, expected_graduation_year,
+          motivation_description are all non-null and non-empty.
+      </description>
+      <parameters>
+        <param name="p_collaborator_id"          type="INT UNSIGNED"  nullable="false"/>
+        <param name="p_first_name"               type="VARCHAR(100)"  nullable="false"/>
+        <param name="p_middle_name"              type="VARCHAR(100)"  nullable="true"/>
+        <param name="p_last_name"                type="VARCHAR(100)"  nullable="false"/>
+        <param name="p_second_last_name"         type="VARCHAR(100)"  nullable="true"/>
+        <param name="p_usfq_email"               type="VARCHAR(255)"  nullable="true"/>
+        <param name="p_phone_number"             type="VARCHAR(20)"   nullable="true"/>
+        <param name="p_date_of_birth"            type="DATE"          nullable="true"/>
+        <param name="p_major"                    type="VARCHAR(150)"  nullable="false"/>
+        <param name="p_current_university_year"  type="TINYINT UNSIGNED" nullable="false"/>
+        <param name="p_expected_graduation_year" type="YEAR"          nullable="false"/>
+        <param name="p_experience_description"   type="TEXT"          nullable="true"/>
+        <param name="p_motivation_description"   type="TEXT"          nullable="true"/>
+        <param name="p_interest_in_training"     type="BOOLEAN"       nullable="false"/>
+        <param name="p_interest_in_research"     type="BOOLEAN"       nullable="false"/>
+        <param name="p_interest_in_fabrication"  type="BOOLEAN"       nullable="false"/>
+        <param name="p_actor_id"                 type="INT UNSIGNED"  nullable="true"  note="NULL = self-update by collaborator"/>
+        <param name="p_ip_address"               type="VARCHAR(45)"   nullable="true"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_collaborator_update_profile(
+  IN p_collaborator_id          INT UNSIGNED,
+  IN p_first_name               VARCHAR(100),
+  IN p_middle_name              VARCHAR(100),
+  IN p_last_name                VARCHAR(100),
+  IN p_second_last_name         VARCHAR(100),
+  IN p_usfq_email               VARCHAR(255),
+  IN p_phone_number             VARCHAR(20),
+  IN p_date_of_birth            DATE,
+  IN p_major                    VARCHAR(150),
+  IN p_current_university_year  TINYINT UNSIGNED,
+  IN p_expected_graduation_year YEAR,
+  IN p_experience_description   TEXT,
+  IN p_motivation_description   TEXT,
+  IN p_interest_in_training     BOOLEAN,
+  IN p_interest_in_research     BOOLEAN,
+  IN p_interest_in_fabrication  BOOLEAN,
+  IN p_actor_id                 INT UNSIGNED,
+  IN p_ip_address               VARCHAR(45)
+)
+BEGIN
+  DECLARE v_profile_complete BOOLEAN DEFAULT FALSE;
+
+  -- Evaluate profile completeness
+  IF p_major IS NOT NULL AND p_major != ''
+     AND p_current_university_year IS NOT NULL
+     AND p_expected_graduation_year IS NOT NULL
+     AND p_motivation_description IS NOT NULL AND p_motivation_description != ''
+  THEN
+    SET v_profile_complete = TRUE;
+  END IF;
+
+  START TRANSACTION;
+    UPDATE collaborators SET
+      first_name               = p_first_name,
+      middle_name              = p_middle_name,
+      last_name                = p_last_name,
+      second_last_name         = p_second_last_name,
+      usfq_email               = p_usfq_email,
+      phone_number             = p_phone_number,
+      date_of_birth            = p_date_of_birth,
+      major                    = p_major,
+      current_university_year  = p_current_university_year,
+      expected_graduation_year = p_expected_graduation_year,
+      experience_description   = p_experience_description,
+      motivation_description   = p_motivation_description,
+      interest_in_training     = p_interest_in_training,
+      interest_in_research     = p_interest_in_research,
+      interest_in_fabrication  = p_interest_in_fabrication,
+      profile_complete         = v_profile_complete,
+      updated_at               = NOW()
+    WHERE id = p_collaborator_id;
+
+    CALL sp_audit_write(
+      IF(p_actor_id IS NOT NULL, 'administrator', 'system'),
+      p_actor_id, 'update',
+      'collaborators', p_collaborator_id,
+      NULL, NULL,
+      'Collaborator profile updated',
+      p_ip_address
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_collaborator_sync_tags">
+      <description>
+        Replaces all collaborator_tags rows for a collaborator with the
+        provided set of tag IDs. Deletes removed tags, inserts new ones.
+        Used on profile update when interest tags change.
+      </description>
+      <parameters>
+        <param name="p_collaborator_id" type="INT UNSIGNED" nullable="false"/>
+        <param name="p_tag_ids"         type="JSON"         nullable="false" note="Full desired set e.g. [1,3,5]"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_collaborator_sync_tags(
+  IN p_collaborator_id INT UNSIGNED,
+  IN p_tag_ids         JSON
+)
+BEGIN
+  DECLARE v_i       INT DEFAULT 0;
+  DECLARE v_count   INT DEFAULT 0;
+  DECLARE v_tag_id  INT UNSIGNED;
+
+  START TRANSACTION;
+    DELETE FROM collaborator_tags WHERE collaborator_id = p_collaborator_id;
+
+    IF JSON_LENGTH(p_tag_ids) > 0 THEN
+      SET v_count = JSON_LENGTH(p_tag_ids);
+      WHILE v_i < v_count DO
+        SET v_tag_id = JSON_EXTRACT(p_tag_ids, CONCAT('$[', v_i, ']'));
+        INSERT IGNORE INTO collaborator_tags (collaborator_id, tag_id, created_at)
+        VALUES (p_collaborator_id, v_tag_id, NOW());
+        SET v_i = v_i + 1;
+      END WHILE;
+    END IF;
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_collaborator_sync_availability">
+      <description>
+        Replaces all availability_slots rows for a collaborator.
+        Full replacement strategy (delete all, re-insert).
+      </description>
+      <parameters>
+        <param name="p_collaborator_id"   type="INT UNSIGNED" nullable="false"/>
+        <param name="p_availability_slots" type="JSON"        nullable="false"
+               note="Array of {day_of_week, time_from, time_to, notes}"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_collaborator_sync_availability(
+  IN p_collaborator_id    INT UNSIGNED,
+  IN p_availability_slots JSON
+)
+BEGIN
+  DECLARE v_i     INT DEFAULT 0;
+  DECLARE v_count INT DEFAULT 0;
+
+  START TRANSACTION;
+    DELETE FROM availability_slots WHERE collaborator_id = p_collaborator_id;
+
+    IF p_availability_slots IS NOT NULL AND JSON_LENGTH(p_availability_slots) > 0 THEN
+      SET v_count = JSON_LENGTH(p_availability_slots);
+      WHILE v_i < v_count DO
+        INSERT INTO availability_slots (
+          collaborator_id, day_of_week, time_from, time_to, notes
+        ) VALUES (
+          p_collaborator_id,
+          JSON_UNQUOTE(JSON_EXTRACT(p_availability_slots, CONCAT('$[',v_i,'].day_of_week'))),
+          JSON_UNQUOTE(JSON_EXTRACT(p_availability_slots, CONCAT('$[',v_i,'].time_from'))),
+          JSON_UNQUOTE(JSON_EXTRACT(p_availability_slots, CONCAT('$[',v_i,'].time_to'))),
+          JSON_UNQUOTE(JSON_EXTRACT(p_availability_slots, CONCAT('$[',v_i,'].notes')))
+        );
+        SET v_i = v_i + 1;
+      END WHILE;
+    END IF;
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+  </procedures>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       4. APPLICATION PROCEDURES
+       ═══════════════════════════════════════════════════════════════════ -->
+  <procedures group="applications">
+
+    <procedure name="sp_application_submit">
+      <description>
+        Creates a new application record. Enforces:
+          - Collaborator must have trajectory_status IN ('contactado','vinculado').
+          - No existing non-withdrawn application for the same project.
+          - Project must be status='activo' and is_visible=TRUE.
+          - If max_collaborators is set, current_collaborator_count must be less.
+      </description>
+      <parameters>
+        <param name="p_collaborator_id"   type="INT UNSIGNED" nullable="false"/>
+        <param name="p_project_id"        type="INT UNSIGNED" nullable="false"/>
+        <param name="p_reason_for_applying" type="TEXT"       nullable="false"/>
+        <param name="p_ip_address"        type="VARCHAR(45)"  nullable="true"/>
+      </parameters>
+      <returns>p_application_id INT UNSIGNED</returns>
+      <error-signals>
+        <signal code="45010" condition="Collaborator status does not permit application"/>
+        <signal code="45011" condition="Duplicate active application exists"/>
+        <signal code="45012" condition="Project not accepting applications"/>
+        <signal code="45013" condition="Project is at max capacity"/>
+      </error-signals>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_application_submit(
+  IN  p_collaborator_id     INT UNSIGNED,
+  IN  p_project_id          INT UNSIGNED,
+  IN  p_reason_for_applying TEXT,
+  IN  p_ip_address          VARCHAR(45),
+  OUT p_application_id      INT UNSIGNED
+)
+BEGIN
+  DECLARE v_traj_status    VARCHAR(20);
+  DECLARE v_proj_status    VARCHAR(20);
+  DECLARE v_proj_visible   BOOLEAN;
+  DECLARE v_max_collab     SMALLINT UNSIGNED;
+  DECLARE v_cur_count      SMALLINT UNSIGNED;
+  DECLARE v_dup_count      INT DEFAULT 0;
+
+  SELECT trajectory_status INTO v_traj_status
+  FROM collaborators WHERE id = p_collaborator_id;
+
+  IF v_traj_status NOT IN ('contactado','vinculado') THEN
+    SIGNAL SQLSTATE '45010'
+      SET MESSAGE_TEXT = 'Collaborator status does not permit applying to projects';
+  END IF;
+
+  SELECT status, is_visible, max_collaborators, current_collaborator_count
+  INTO v_proj_status, v_proj_visible, v_max_collab, v_cur_count
+  FROM projects WHERE id = p_project_id;
+
+  IF v_proj_status != 'activo' OR v_proj_visible = FALSE THEN
+    SIGNAL SQLSTATE '45012'
+      SET MESSAGE_TEXT = 'Project is not accepting applications';
+  END IF;
+
+  IF v_max_collab IS NOT NULL AND v_cur_count >= v_max_collab THEN
+    SIGNAL SQLSTATE '45013'
+      SET MESSAGE_TEXT = 'Project has reached maximum collaborator capacity';
+  END IF;
+
+  SELECT COUNT(*) INTO v_dup_count
+  FROM applications
+  WHERE collaborator_id = p_collaborator_id
+    AND project_id      = p_project_id
+    AND status NOT IN ('retirada','rechazada');
+
+  IF v_dup_count > 0 THEN
+    SIGNAL SQLSTATE '45011'
+      SET MESSAGE_TEXT = 'An active application already exists for this project';
+  END IF;
+
+  START TRANSACTION;
+    INSERT INTO applications (
+      collaborator_id, project_id, reason_for_applying,
+      status, applied_at
+    ) VALUES (
+      p_collaborator_id, p_project_id, p_reason_for_applying,
+      'pendiente', NOW()
+    );
+
+    SET p_application_id = LAST_INSERT_ID();
+
+    CALL sp_audit_write(
+      'system', NULL, 'create',
+      'applications', p_application_id,
+      NULL,
+      JSON_OBJECT('collaborator_id', p_collaborator_id,
+                  'project_id', p_project_id,
+                  'status', 'pendiente'),
+      'Application submitted by collaborator',
+      p_ip_address
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_application_set_status">
+      <description>
+        Moves an application to en_revision or rechazada.
+        Does NOT handle approval — use sp_application_approve for that.
+
+        Allowed transitions:
+          pendiente   → en_revision | rechazada
+          en_revision → rechazada
+          pendiente   → retirada  (collaborator self-withdraw only)
+      </description>
+      <parameters>
+        <param name="p_application_id" type="INT UNSIGNED" nullable="false"/>
+        <param name="p_new_status"     type="VARCHAR(20)"  nullable="false"/>
+        <param name="p_admin_notes"    type="TEXT"         nullable="true"/>
+        <param name="p_actor_id"       type="INT UNSIGNED" nullable="false"/>
+        <param name="p_ip_address"     type="VARCHAR(45)"  nullable="true"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_application_set_status(
+  IN p_application_id INT UNSIGNED,
+  IN p_new_status     VARCHAR(20),
+  IN p_admin_notes    TEXT,
+  IN p_actor_id       INT UNSIGNED,
+  IN p_ip_address     VARCHAR(45)
+)
+BEGIN
+  DECLARE v_current_status VARCHAR(20);
+  DECLARE v_allowed        TINYINT DEFAULT 0;
+
+  SELECT status INTO v_current_status
+  FROM applications WHERE id = p_application_id FOR UPDATE;
+
+  SET v_allowed = CASE
+    WHEN v_current_status = 'pendiente'   AND p_new_status IN ('en_revision','rechazada','retirada') THEN 1
+    WHEN v_current_status = 'en_revision' AND p_new_status IN ('rechazada')                          THEN 1
+    ELSE 0
+  END;
+
+  IF v_allowed = 0 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = CONCAT('Invalid application transition: ',
+                                v_current_status, ' → ', p_new_status);
+  END IF;
+
+  START TRANSACTION;
+    UPDATE applications SET
+      status       = p_new_status,
+      admin_notes  = COALESCE(p_admin_notes, admin_notes),
+      reviewed_at  = IF(p_new_status = 'en_revision', NOW(), reviewed_at),
+      rejected_at  = IF(p_new_status = 'rechazada',   NOW(), rejected_at),
+      approver_admin_id = IF(p_new_status = 'rechazada', p_actor_id, approver_admin_id)
+    WHERE id = p_application_id;
+
+    CALL sp_audit_write(
+      'administrator', p_actor_id,
+      IF(p_new_status = 'rechazada', 'reject', 'status_change'),
+      'applications', p_application_id,
+      JSON_OBJECT('status', v_current_status),
+      JSON_OBJECT('status', p_new_status),
+      CONCAT('Application status → ', p_new_status),
+      p_ip_address
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_application_approve">
+      <description>
+        *** CORE TRANSACTIONAL PROCEDURE ***
+
+        Atomically approves an application AND creates the resulting
+        assignment in a single database transaction. Also:
+          1. Sets application.status        = 'aprobada'
+          2. Sets application.approved_at   = NOW()
+          3. Inserts into assignments
+          4. Increments projects.current_collaborator_count
+          5. Sets collaborator.trajectory_status = 'vinculado'
+             (only if not already vinculado)
+          6. Writes 2 audit_log entries (approve + assign)
+
+        After commit, the service layer sends the activation email via Resend.
+
+        Error if:
+          - Application not in ('pendiente','en_revision')
+          - Collaborator already has an active assignment for this project
+          - Project at max capacity
+      </description>
+      <parameters>
+        <param name="p_application_id" type="INT UNSIGNED" nullable="false"/>
+        <param name="p_admin_id"       type="INT UNSIGNED" nullable="false"/>
+        <param name="p_role_in_project" type="VARCHAR(150)" nullable="true"/>
+        <param name="p_admin_notes"    type="TEXT"          nullable="true"/>
+        <param name="p_ip_address"     type="VARCHAR(45)"   nullable="true"/>
+      </parameters>
+      <returns>p_assignment_id INT UNSIGNED</returns>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_application_approve(
+  IN  p_application_id  INT UNSIGNED,
+  IN  p_admin_id        INT UNSIGNED,
+  IN  p_role_in_project VARCHAR(150),
+  IN  p_admin_notes     TEXT,
+  IN  p_ip_address      VARCHAR(45),
+  OUT p_assignment_id   INT UNSIGNED
+)
+BEGIN
+  DECLARE v_app_status    VARCHAR(20);
+  DECLARE v_collab_id     INT UNSIGNED;
+  DECLARE v_project_id    INT UNSIGNED;
+  DECLARE v_traj_status   VARCHAR(20);
+  DECLARE v_max_collab    SMALLINT UNSIGNED;
+  DECLARE v_cur_count     SMALLINT UNSIGNED;
+  DECLARE v_dup_assign    INT DEFAULT 0;
+
+  -- Lock application row
+  SELECT status, collaborator_id, project_id
+  INTO v_app_status, v_collab_id, v_project_id
+  FROM applications
+  WHERE id = p_application_id
+  FOR UPDATE;
+
+  IF v_app_status NOT IN ('pendiente', 'en_revision') THEN
+    SIGNAL SQLSTATE '45020'
+      SET MESSAGE_TEXT = 'Application cannot be approved from its current status';
+  END IF;
+
+  -- Check capacity
+  SELECT max_collaborators, current_collaborator_count
+  INTO v_max_collab, v_cur_count
+  FROM projects WHERE id = v_project_id FOR UPDATE;
+
+  IF v_max_collab IS NOT NULL AND v_cur_count >= v_max_collab THEN
+    SIGNAL SQLSTATE '45021'
+      SET MESSAGE_TEXT = 'Project is at max collaborator capacity';
+  END IF;
+
+  -- Check duplicate active assignment
+  SELECT COUNT(*) INTO v_dup_assign
+  FROM assignments
+  WHERE collaborator_id = v_collab_id
+    AND project_id      = v_project_id
+    AND status          = 'activo';
+
+  IF v_dup_assign > 0 THEN
+    SIGNAL SQLSTATE '45022'
+      SET MESSAGE_TEXT = 'Collaborator already has an active assignment for this project';
+  END IF;
+
+  SELECT trajectory_status INTO v_traj_status
+  FROM collaborators WHERE id = v_collab_id FOR UPDATE;
+
+  START TRANSACTION;
+
+    -- 1. Approve application
+    UPDATE applications SET
+      status            = 'aprobada',
+      approved_at       = NOW(),
+      reviewed_at       = COALESCE(reviewed_at, NOW()),
+      approver_admin_id = p_admin_id,
+      admin_notes       = COALESCE(p_admin_notes, admin_notes)
+    WHERE id = p_application_id;
+
+    -- 2. Create assignment
+    INSERT INTO assignments (
+      collaborator_id, project_id, application_id,
+      assigned_by_admin_id, role_in_project,
+      assigned_at, status
+    ) VALUES (
+      v_collab_id, v_project_id, p_application_id,
+      p_admin_id, p_role_in_project,
+      NOW(), 'activo'
+    );
+    SET p_assignment_id = LAST_INSERT_ID();
+
+    -- 3. Increment project counter
+    UPDATE projects
+    SET current_collaborator_count = current_collaborator_count + 1,
+        updated_at                 = NOW()
+    WHERE id = v_project_id;
+
+    -- 4. Set collaborator trajectory_status to vinculado (if not already)
+    IF v_traj_status != 'vinculado' THEN
+      UPDATE collaborators
+      SET trajectory_status = 'vinculado', updated_at = NOW()
+      WHERE id = v_collab_id;
+    END IF;
+
+    -- 5a. Audit: approval
+    CALL sp_audit_write(
+      'administrator', p_admin_id, 'approve',
+      'applications', p_application_id,
+      JSON_OBJECT('status', v_app_status),
+      JSON_OBJECT('status', 'aprobada'),
+      CONCAT('Application approved; assignment ', LAST_INSERT_ID(), ' created'),
+      p_ip_address
+    );
+
+    -- 5b. Audit: assignment creation
+    CALL sp_audit_write(
+      'administrator', p_admin_id, 'assign',
+      'assignments', p_assignment_id,
+      NULL,
+      JSON_OBJECT('collaborator_id', v_collab_id,
+                  'project_id', v_project_id,
+                  'status', 'activo'),
+      'Assignment created from application approval',
+      p_ip_address
+    );
+
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+  </procedures>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       5. ASSIGNMENT PROCEDURES
+       ═══════════════════════════════════════════════════════════════════ -->
+  <procedures group="assignments">
+
+    <procedure name="sp_assignment_create_manual">
+      <description>
+        Creates an assignment directly (without an application).
+        Used for admin-initiated linkages. Also auto-promotes collaborator
+        to trajectory_status = 'vinculado' and increments project counter.
+      </description>
+      <parameters>
+        <param name="p_collaborator_id"    type="INT UNSIGNED"  nullable="false"/>
+        <param name="p_project_id"         type="INT UNSIGNED"  nullable="false"/>
+        <param name="p_admin_id"           type="INT UNSIGNED"  nullable="false"/>
+        <param name="p_role_in_project"    type="VARCHAR(150)"  nullable="true"/>
+        <param name="p_ip_address"         type="VARCHAR(45)"   nullable="true"/>
+      </parameters>
+      <returns>p_assignment_id INT UNSIGNED</returns>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_assignment_create_manual(
+  IN  p_collaborator_id INT UNSIGNED,
+  IN  p_project_id      INT UNSIGNED,
+  IN  p_admin_id        INT UNSIGNED,
+  IN  p_role_in_project VARCHAR(150),
+  IN  p_ip_address      VARCHAR(45),
+  OUT p_assignment_id   INT UNSIGNED
+)
+BEGIN
+  DECLARE v_dup_count INT DEFAULT 0;
+  DECLARE v_max_collab SMALLINT UNSIGNED;
+  DECLARE v_cur_count  SMALLINT UNSIGNED;
+
+  SELECT COUNT(*) INTO v_dup_count
+  FROM assignments
+  WHERE collaborator_id = p_collaborator_id
+    AND project_id      = p_project_id
+    AND status          = 'activo';
+
+  IF v_dup_count > 0 THEN
+    SIGNAL SQLSTATE '45030'
+      SET MESSAGE_TEXT = 'Active assignment already exists';
+  END IF;
+
+  SELECT max_collaborators, current_collaborator_count
+  INTO v_max_collab, v_cur_count
+  FROM projects WHERE id = p_project_id FOR UPDATE;
+
+  IF v_max_collab IS NOT NULL AND v_cur_count >= v_max_collab THEN
+    SIGNAL SQLSTATE '45031' SET MESSAGE_TEXT = 'Project at max capacity';
+  END IF;
+
+  START TRANSACTION;
+    INSERT INTO assignments (
+      collaborator_id, project_id, application_id,
+      assigned_by_admin_id, role_in_project,
+      assigned_at, status
+    ) VALUES (
+      p_collaborator_id, p_project_id, NULL,
+      p_admin_id, p_role_in_project,
+      NOW(), 'activo'
+    );
+    SET p_assignment_id = LAST_INSERT_ID();
+
+    UPDATE projects
+    SET current_collaborator_count = current_collaborator_count + 1,
+        updated_at = NOW()
+    WHERE id = p_project_id;
+
+    UPDATE collaborators
+    SET trajectory_status = 'vinculado', updated_at = NOW()
+    WHERE id = p_collaborator_id
+      AND trajectory_status != 'vinculado';
+
+    CALL sp_audit_write(
+      'administrator', p_admin_id, 'assign',
+      'assignments', p_assignment_id,
+      NULL,
+      JSON_OBJECT('collaborator_id', p_collaborator_id,
+                  'project_id', p_project_id,
+                  'role', p_role_in_project),
+      'Manual assignment created by admin',
+      p_ip_address
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_assignment_end">
+      <description>
+        Ends an active assignment. Sets ended_at, end_reason, and status.
+        Decrements projects.current_collaborator_count.
+
+        If the collaborator has NO remaining active assignments after this,
+        trajectory_status is demoted to 'inactivo'.
+
+        Allowed end statuses: finalizado | removido | pausado
+      </description>
+      <parameters>
+        <param name="p_assignment_id" type="INT UNSIGNED"  nullable="false"/>
+        <param name="p_end_status"    type="VARCHAR(20)"   nullable="false" note="finalizado | removido | pausado"/>
+        <param name="p_end_reason"    type="VARCHAR(300)"  nullable="true"/>
+        <param name="p_admin_id"      type="INT UNSIGNED"  nullable="false"/>
+        <param name="p_ip_address"    type="VARCHAR(45)"   nullable="true"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_assignment_end(
+  IN p_assignment_id INT UNSIGNED,
+  IN p_end_status    VARCHAR(20),
+  IN p_end_reason    VARCHAR(300),
+  IN p_admin_id      INT UNSIGNED,
+  IN p_ip_address    VARCHAR(45)
+)
+BEGIN
+  DECLARE v_collab_id      INT UNSIGNED;
+  DECLARE v_project_id     INT UNSIGNED;
+  DECLARE v_current_status VARCHAR(20);
+  DECLARE v_remaining      INT DEFAULT 0;
+
+  SELECT collaborator_id, project_id, status
+  INTO v_collab_id, v_project_id, v_current_status
+  FROM assignments WHERE id = p_assignment_id FOR UPDATE;
+
+  IF v_current_status NOT IN ('activo','pausado') THEN
+    SIGNAL SQLSTATE '45040'
+      SET MESSAGE_TEXT = 'Assignment is not in an endable state';
+  END IF;
+
+  IF p_end_status NOT IN ('finalizado','removido','pausado') THEN
+    SIGNAL SQLSTATE '45041'
+      SET MESSAGE_TEXT = 'Invalid end status value';
+  END IF;
+
+  START TRANSACTION;
+    UPDATE assignments SET
+      status     = p_end_status,
+      ended_at   = IF(p_end_status != 'pausado', NOW(), ended_at),
+      end_reason = p_end_reason,
+      updated_at = NOW()
+    WHERE id = p_assignment_id;
+
+    -- Decrement counter only when fully ending (not pausing)
+    IF p_end_status IN ('finalizado','removido') THEN
+      UPDATE projects
+      SET current_collaborator_count =
+            GREATEST(0, current_collaborator_count - 1),
+          updated_at = NOW()
+      WHERE id = v_project_id;
+
+      -- Check remaining active assignments
+      SELECT COUNT(*) INTO v_remaining
+      FROM assignments
+      WHERE collaborator_id = v_collab_id
+        AND status          = 'activo'
+        AND id             != p_assignment_id;
+
+      IF v_remaining = 0 THEN
+        UPDATE collaborators
+        SET trajectory_status = 'inactivo', updated_at = NOW()
+        WHERE id = v_collab_id;
+      END IF;
+    END IF;
+
+    CALL sp_audit_write(
+      'administrator', p_admin_id, 'unassign',
+      'assignments', p_assignment_id,
+      JSON_OBJECT('status', v_current_status),
+      JSON_OBJECT('status', p_end_status, 'end_reason', p_end_reason),
+      CONCAT('Assignment ended: ', p_end_status),
+      p_ip_address
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+  </procedures>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       6. PROJECT PROCEDURES
+       ═══════════════════════════════════════════════════════════════════ -->
+  <procedures group="projects">
+
+    <procedure name="sp_project_create">
+      <description>
+        Creates a new project with tags and meeting_days in one transaction.
+        Slug is generated in the service layer and passed in.
+      </description>
+      <parameters>
+        <param name="p_title"               type="VARCHAR(255)"  nullable="false"/>
+        <param name="p_slug"                type="VARCHAR(255)"  nullable="false"/>
+        <param name="p_short_description"   type="VARCHAR(500)"  nullable="false"/>
+        <param name="p_full_description"    type="TEXT"          nullable="false"/>
+        <param name="p_target_audience"     type="VARCHAR(300)"  nullable="true"/>
+        <param name="p_required_skills"     type="TEXT"          nullable="true"/>
+        <param name="p_participation_mode"  type="VARCHAR(200)"  nullable="true"/>
+        <param name="p_header_image_url"    type="VARCHAR(1000)" nullable="true"/>
+        <param name="p_video_url"           type="VARCHAR(1000)" nullable="true"/>
+        <param name="p_status"              type="VARCHAR(20)"   nullable="false" default="activo"/>
+        <param name="p_is_highlighted"      type="BOOLEAN"       nullable="false" default="FALSE"/>
+        <param name="p_is_visible"          type="BOOLEAN"       nullable="false" default="TRUE"/>
+        <param name="p_max_collaborators"   type="SMALLINT UNSIGNED" nullable="true"/>
+        <param name="p_created_by_admin_id" type="INT UNSIGNED"  nullable="false"/>
+        <param name="p_tag_ids"             type="JSON"          nullable="true"/>
+        <param name="p_meeting_days"        type="JSON"          nullable="true"
+               note="Array of {day_of_week, notes}"/>
+        <param name="p_manager_ids"         type="JSON"          nullable="true"
+               note="Array of {admin_id, is_primary}"/>
+      </parameters>
+      <returns>p_project_id INT UNSIGNED</returns>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_project_create(
+  IN  p_title               VARCHAR(255),
+  IN  p_slug                VARCHAR(255),
+  IN  p_short_description   VARCHAR(500),
+  IN  p_full_description    TEXT,
+  IN  p_target_audience     VARCHAR(300),
+  IN  p_required_skills     TEXT,
+  IN  p_participation_mode  VARCHAR(200),
+  IN  p_header_image_url    VARCHAR(1000),
+  IN  p_video_url           VARCHAR(1000),
+  IN  p_status              VARCHAR(20),
+  IN  p_is_highlighted      BOOLEAN,
+  IN  p_is_visible          BOOLEAN,
+  IN  p_max_collaborators   SMALLINT UNSIGNED,
+  IN  p_created_by_admin_id INT UNSIGNED,
+  IN  p_tag_ids             JSON,
+  IN  p_meeting_days        JSON,
+  IN  p_manager_ids         JSON,
+  OUT p_project_id          INT UNSIGNED
+)
+BEGIN
+  DECLARE v_i       INT DEFAULT 0;
+  DECLARE v_count   INT DEFAULT 0;
+
+  IF EXISTS (SELECT 1 FROM projects WHERE slug = p_slug) THEN
+    SIGNAL SQLSTATE '45050' SET MESSAGE_TEXT = 'Project slug already exists';
+  END IF;
+
+  START TRANSACTION;
+    INSERT INTO projects (
+      title, slug, short_description, full_description,
+      target_audience, required_skills, participation_mode,
+      header_image_url, video_url, status,
+      is_highlighted, is_visible, max_collaborators,
+      current_collaborator_count, created_by_admin_id,
+      created_at, updated_at
+    ) VALUES (
+      p_title, p_slug, p_short_description, p_full_description,
+      p_target_audience, p_required_skills, p_participation_mode,
+      p_header_image_url, p_video_url, p_status,
+      p_is_highlighted, p_is_visible, p_max_collaborators,
+      0, p_created_by_admin_id,
+      NOW(), NOW()
+    );
+    SET p_project_id = LAST_INSERT_ID();
+
+    -- Tags
+    IF p_tag_ids IS NOT NULL AND JSON_LENGTH(p_tag_ids) > 0 THEN
+      SET v_count = JSON_LENGTH(p_tag_ids);
+      WHILE v_i < v_count DO
+        INSERT IGNORE INTO project_tags (project_id, tag_id, created_at)
+        VALUES (p_project_id,
+                JSON_EXTRACT(p_tag_ids, CONCAT('$[', v_i, ']')),
+                NOW());
+        SET v_i = v_i + 1;
+      END WHILE;
+    END IF;
+
+    -- Meeting days
+    SET v_i = 0;
+    IF p_meeting_days IS NOT NULL AND JSON_LENGTH(p_meeting_days) > 0 THEN
+      SET v_count = JSON_LENGTH(p_meeting_days);
+      WHILE v_i < v_count DO
+        INSERT INTO project_meeting_days (project_id, day_of_week, notes)
+        VALUES (
+          p_project_id,
+          JSON_UNQUOTE(JSON_EXTRACT(p_meeting_days, CONCAT('$[',v_i,'].day_of_week'))),
+          JSON_UNQUOTE(JSON_EXTRACT(p_meeting_days, CONCAT('$[',v_i,'].notes')))
+        );
+        SET v_i = v_i + 1;
+      END WHILE;
+    END IF;
+
+    -- Managers
+    SET v_i = 0;
+    IF p_manager_ids IS NOT NULL AND JSON_LENGTH(p_manager_ids) > 0 THEN
+      SET v_count = JSON_LENGTH(p_manager_ids);
+      WHILE v_i < v_count DO
+        INSERT IGNORE INTO project_managers (
+          project_id, admin_id, is_primary, assigned_at
+        ) VALUES (
+          p_project_id,
+          JSON_EXTRACT(p_manager_ids, CONCAT('$[',v_i,'].admin_id')),
+          COALESCE(JSON_EXTRACT(p_manager_ids, CONCAT('$[',v_i,'].is_primary')), FALSE),
+          NOW()
+        );
+        SET v_i = v_i + 1;
+      END WHILE;
+    END IF;
+
+    CALL sp_audit_write(
+      'administrator', p_created_by_admin_id, 'create',
+      'projects', p_project_id,
+      NULL,
+      JSON_OBJECT('title', p_title, 'slug', p_slug, 'status', p_status),
+      'Project created',
+      NULL
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_project_set_status">
+      <description>
+        Updates project status with transition enforcement.
+
+        Allowed transitions:
+          proximo    → activo | archivado
+          activo     → en_pausa | completado | archivado
+          en_pausa   → activo  | archivado
+          completado → archivado
+      </description>
+      <parameters>
+        <param name="p_project_id"  type="INT UNSIGNED" nullable="false"/>
+        <param name="p_new_status"  type="VARCHAR(20)"  nullable="false"/>
+        <param name="p_admin_id"    type="INT UNSIGNED" nullable="false"/>
+        <param name="p_ip_address"  type="VARCHAR(45)"  nullable="true"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_project_set_status(
+  IN p_project_id INT UNSIGNED,
+  IN p_new_status VARCHAR(20),
+  IN p_admin_id   INT UNSIGNED,
+  IN p_ip_address VARCHAR(45)
+)
+BEGIN
+  DECLARE v_current VARCHAR(20);
+  DECLARE v_allowed TINYINT DEFAULT 0;
+
+  SELECT status INTO v_current FROM projects WHERE id = p_project_id FOR UPDATE;
+
+  SET v_allowed = CASE
+    WHEN v_current = 'proximo'    AND p_new_status IN ('activo','archivado')         THEN 1
+    WHEN v_current = 'activo'     AND p_new_status IN ('en_pausa','completado','archivado') THEN 1
+    WHEN v_current = 'en_pausa'   AND p_new_status IN ('activo','archivado')         THEN 1
+    WHEN v_current = 'completado' AND p_new_status IN ('archivado')                  THEN 1
+    ELSE 0
+  END;
+
+  IF v_allowed = 0 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = CONCAT('Invalid project transition: ', v_current,' → ',p_new_status);
+  END IF;
+
+  START TRANSACTION;
+    UPDATE projects
+    SET status = p_new_status, updated_at = NOW()
+    WHERE id = p_project_id;
+
+    CALL sp_audit_write(
+      'administrator', p_admin_id, 'status_change',
+      'projects', p_project_id,
+      JSON_OBJECT('status', v_current),
+      JSON_OBJECT('status', p_new_status),
+      CONCAT('Project status → ', p_new_status),
+      p_ip_address
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_project_toggle_visibility">
+      <description>Toggles is_visible for a project. Simple boolean flip.</description>
+      <parameters>
+        <param name="p_project_id" type="INT UNSIGNED" nullable="false"/>
+        <param name="p_admin_id"   type="INT UNSIGNED" nullable="false"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_project_toggle_visibility(
+  IN p_project_id INT UNSIGNED,
+  IN p_admin_id   INT UNSIGNED
+)
+BEGIN
+  UPDATE projects
+  SET is_visible = NOT is_visible, updated_at = NOW()
+  WHERE id = p_project_id;
+
+  CALL sp_audit_write(
+    'administrator', p_admin_id, 'update',
+    'projects', p_project_id,
+    NULL, NULL, 'Project visibility toggled', NULL
+  );
+END;
+      ]]></sql>
+    </procedure>
+
+  </procedures>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       7. EVENT PROCEDURES
+       ═══════════════════════════════════════════════════════════════════ -->
+  <procedures group="events">
+
+    <procedure name="sp_event_create">
+      <description>
+        Creates a new event with tags and managers in one transaction.
+        Mirrors the project creation pattern.
+      </description>
+      <parameters>
+        <param name="p_title"               type="VARCHAR(255)"  nullable="false"/>
+        <param name="p_slug"                type="VARCHAR(255)"  nullable="false"/>
+        <param name="p_type"                type="VARCHAR(30)"   nullable="false"/>
+        <param name="p_short_description"   type="VARCHAR(500)"  nullable="false"/>
+        <param name="p_full_description"    type="TEXT"          nullable="false"/>
+        <param name="p_target_audience"     type="VARCHAR(300)"  nullable="true"/>
+        <param name="p_location"            type="VARCHAR(300)"  nullable="true"/>
+        <param name="p_event_date"          type="DATETIME"      nullable="true"/>
+        <param name="p_event_end_date"      type="DATETIME"      nullable="true"/>
+        <param name="p_registration_deadline" type="DATETIME"    nullable="true"/>
+        <param name="p_capacity"            type="SMALLINT UNSIGNED" nullable="true"/>
+        <param name="p_header_image_url"    type="VARCHAR(1000)" nullable="true"/>
+        <param name="p_banner_image_url"    type="VARCHAR(1000)" nullable="true"/>
+        <param name="p_registration_url"    type="VARCHAR(1000)" nullable="true"/>
+        <param name="p_status"              type="VARCHAR(20)"   nullable="false" default="proximo"/>
+        <param name="p_is_highlighted"      type="BOOLEAN"       nullable="false" default="FALSE"/>
+        <param name="p_is_visible"          type="BOOLEAN"       nullable="false" default="TRUE"/>
+        <param name="p_created_by_admin_id" type="INT UNSIGNED"  nullable="false"/>
+        <param name="p_tag_ids"             type="JSON"          nullable="true"/>
+        <param name="p_manager_ids"         type="JSON"          nullable="true"
+               note="Array of {admin_id, is_primary}"/>
+      </parameters>
+      <returns>p_event_id INT UNSIGNED</returns>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_event_create(
+  IN  p_title                 VARCHAR(255),
+  IN  p_slug                  VARCHAR(255),
+  IN  p_type                  VARCHAR(30),
+  IN  p_short_description     VARCHAR(500),
+  IN  p_full_description      TEXT,
+  IN  p_target_audience       VARCHAR(300),
+  IN  p_location              VARCHAR(300),
+  IN  p_event_date            DATETIME,
+  IN  p_event_end_date        DATETIME,
+  IN  p_registration_deadline DATETIME,
+  IN  p_capacity              SMALLINT UNSIGNED,
+  IN  p_header_image_url      VARCHAR(1000),
+  IN  p_banner_image_url      VARCHAR(1000),
+  IN  p_registration_url      VARCHAR(1000),
+  IN  p_status                VARCHAR(20),
+  IN  p_is_highlighted        BOOLEAN,
+  IN  p_is_visible            BOOLEAN,
+  IN  p_created_by_admin_id   INT UNSIGNED,
+  IN  p_tag_ids               JSON,
+  IN  p_manager_ids           JSON,
+  OUT p_event_id              INT UNSIGNED
+)
+BEGIN
+  DECLARE v_i INT DEFAULT 0; DECLARE v_count INT DEFAULT 0;
+
+  IF EXISTS (SELECT 1 FROM events WHERE slug = p_slug) THEN
+    SIGNAL SQLSTATE '45060' SET MESSAGE_TEXT = 'Event slug already exists';
+  END IF;
+
+  START TRANSACTION;
+    INSERT INTO events (
+      title, slug, type, short_description, full_description,
+      target_audience, location, event_date, event_end_date,
+      registration_deadline, capacity,
+      header_image_url, banner_image_url, registration_url,
+      status, is_highlighted, is_visible,
+      created_by_admin_id, created_at, updated_at
+    ) VALUES (
+      p_title, p_slug, p_type, p_short_description, p_full_description,
+      p_target_audience, p_location, p_event_date, p_event_end_date,
+      p_registration_deadline, p_capacity,
+      p_header_image_url, p_banner_image_url, p_registration_url,
+      p_status, p_is_highlighted, p_is_visible,
+      p_created_by_admin_id, NOW(), NOW()
+    );
+    SET p_event_id = LAST_INSERT_ID();
+
+    -- Tags
+    IF p_tag_ids IS NOT NULL AND JSON_LENGTH(p_tag_ids) > 0 THEN
+      SET v_count = JSON_LENGTH(p_tag_ids);
+      WHILE v_i < v_count DO
+        INSERT IGNORE INTO event_tags (event_id, tag_id, created_at)
+        VALUES (p_event_id,
+                JSON_EXTRACT(p_tag_ids, CONCAT('$[',v_i,']')),
+                NOW());
+        SET v_i = v_i + 1;
+      END WHILE;
+    END IF;
+
+    -- Managers
+    SET v_i = 0;
+    IF p_manager_ids IS NOT NULL AND JSON_LENGTH(p_manager_ids) > 0 THEN
+      SET v_count = JSON_LENGTH(p_manager_ids);
+      WHILE v_i < v_count DO
+        INSERT IGNORE INTO event_managers (event_id, admin_id, is_primary, assigned_at)
+        VALUES (
+          p_event_id,
+          JSON_EXTRACT(p_manager_ids, CONCAT('$[',v_i,'].admin_id')),
+          COALESCE(JSON_EXTRACT(p_manager_ids, CONCAT('$[',v_i,'].is_primary')), FALSE),
+          NOW()
+        );
+        SET v_i = v_i + 1;
+      END WHILE;
+    END IF;
+
+    CALL sp_audit_write(
+      'administrator', p_created_by_admin_id, 'create',
+      'events', p_event_id, NULL,
+      JSON_OBJECT('title', p_title, 'slug', p_slug, 'status', p_status),
+      'Event created', NULL
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_event_set_status">
+      <description>
+        Sets event status with transition enforcement.
+
+        Allowed transitions:
+          proximo  → abierto | cancelado
+          abierto  → en_curso | cancelado
+          en_curso → finalizado
+      </description>
+      <parameters>
+        <param name="p_event_id"   type="INT UNSIGNED" nullable="false"/>
+        <param name="p_new_status" type="VARCHAR(20)"  nullable="false"/>
+        <param name="p_admin_id"   type="INT UNSIGNED" nullable="false"/>
+        <param name="p_ip_address" type="VARCHAR(45)"  nullable="true"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_event_set_status(
+  IN p_event_id   INT UNSIGNED,
+  IN p_new_status VARCHAR(20),
+  IN p_admin_id   INT UNSIGNED,
+  IN p_ip_address VARCHAR(45)
+)
+BEGIN
+  DECLARE v_current VARCHAR(20);
+  DECLARE v_allowed TINYINT DEFAULT 0;
+
+  SELECT status INTO v_current FROM events WHERE id = p_event_id FOR UPDATE;
+
+  SET v_allowed = CASE
+    WHEN v_current = 'proximo'  AND p_new_status IN ('abierto','cancelado')  THEN 1
+    WHEN v_current = 'abierto'  AND p_new_status IN ('en_curso','cancelado') THEN 1
+    WHEN v_current = 'en_curso' AND p_new_status = 'finalizado'              THEN 1
+    ELSE 0
+  END;
+
+  IF v_allowed = 0 THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = CONCAT('Invalid event transition: ', v_current,' → ',p_new_status);
+  END IF;
+
+  START TRANSACTION;
+    UPDATE events SET status = p_new_status, updated_at = NOW()
+    WHERE id = p_event_id;
+
+    CALL sp_audit_write(
+      'administrator', p_admin_id, 'status_change',
+      'events', p_event_id,
+      JSON_OBJECT('status', v_current),
+      JSON_OBJECT('status', p_new_status),
+      CONCAT('Event status → ', p_new_status),
+      p_ip_address
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+  </procedures>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       8. TAG PROCEDURES
+       ═══════════════════════════════════════════════════════════════════ -->
+  <procedures group="tags">
+
+    <procedure name="sp_tag_create">
+      <description>Creates a new tag. System tags (is_system=TRUE) can only be created at seed time.</description>
+      <parameters>
+        <param name="p_name"              type="VARCHAR(100)" nullable="false"/>
+        <param name="p_slug"              type="VARCHAR(100)" nullable="false"/>
+        <param name="p_category"          type="VARCHAR(30)"  nullable="false" default="general"/>
+        <param name="p_created_by_admin_id" type="INT UNSIGNED" nullable="true"/>
+      </parameters>
+      <returns>p_tag_id INT UNSIGNED</returns>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_tag_create(
+  IN  p_name               VARCHAR(100),
+  IN  p_slug               VARCHAR(100),
+  IN  p_category           VARCHAR(30),
+  IN  p_created_by_admin_id INT UNSIGNED,
+  OUT p_tag_id             INT UNSIGNED
+)
+BEGIN
+  IF EXISTS (SELECT 1 FROM tags WHERE slug = p_slug) THEN
+    SIGNAL SQLSTATE '45070' SET MESSAGE_TEXT = 'Tag slug already exists';
+  END IF;
+
+  INSERT INTO tags (name, slug, category, is_system, created_by_admin_id, created_at)
+  VALUES (p_name, p_slug, p_category, FALSE, p_created_by_admin_id, NOW());
+
+  SET p_tag_id = LAST_INSERT_ID();
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_tag_delete">
+      <description>
+        Deletes a tag and removes all junction references.
+        System tags (is_system = TRUE) cannot be deleted.
+      </description>
+      <parameters>
+        <param name="p_tag_id"   type="INT UNSIGNED" nullable="false"/>
+        <param name="p_admin_id" type="INT UNSIGNED" nullable="false"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_tag_delete(IN p_tag_id INT UNSIGNED, IN p_admin_id INT UNSIGNED)
+BEGIN
+  DECLARE v_is_system BOOLEAN;
+
+  SELECT is_system INTO v_is_system FROM tags WHERE id = p_tag_id;
+
+  IF v_is_system = TRUE THEN
+    SIGNAL SQLSTATE '45071' SET MESSAGE_TEXT = 'Cannot delete system-defined tags';
+  END IF;
+
+  START TRANSACTION;
+    DELETE FROM collaborator_tags WHERE tag_id = p_tag_id;
+    DELETE FROM project_tags       WHERE tag_id = p_tag_id;
+    DELETE FROM event_tags         WHERE tag_id = p_tag_id;
+    DELETE FROM tags               WHERE id     = p_tag_id;
+
+    CALL sp_audit_write(
+      'administrator', p_admin_id, 'delete',
+      'tags', p_tag_id,
+      NULL, NULL, 'Tag deleted and de-referenced', NULL
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+  </procedures>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       9. CONTENT MANAGEMENT PROCEDURES
+       ═══════════════════════════════════════════════════════════════════ -->
+  <procedures group="content">
+
+    <procedure name="sp_content_upsert_home_hero">
+      <description>
+        Deactivates all existing home_hero rows, then inserts or updates
+        the given row. Only one hero is active at a time.
+      </description>
+      <parameters>
+        <param name="p_id"                   type="INT UNSIGNED"  nullable="true"  note="NULL = insert new"/>
+        <param name="p_headline"             type="VARCHAR(255)"  nullable="false"/>
+        <param name="p_subheadline"          type="VARCHAR(500)"  nullable="true"/>
+        <param name="p_primary_cta_label"    type="VARCHAR(100)"  nullable="false"/>
+        <param name="p_primary_cta_url"      type="VARCHAR(500)"  nullable="false"/>
+        <param name="p_secondary_cta_label"  type="VARCHAR(100)"  nullable="true"/>
+        <param name="p_secondary_cta_url"    type="VARCHAR(500)"  nullable="true"/>
+        <param name="p_background_image_url" type="VARCHAR(1000)" nullable="true"/>
+        <param name="p_admin_id"             type="INT UNSIGNED"  nullable="false"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_content_upsert_home_hero(
+  IN p_id                   INT UNSIGNED,
+  IN p_headline             VARCHAR(255),
+  IN p_subheadline          VARCHAR(500),
+  IN p_primary_cta_label    VARCHAR(100),
+  IN p_primary_cta_url      VARCHAR(500),
+  IN p_secondary_cta_label  VARCHAR(100),
+  IN p_secondary_cta_url    VARCHAR(500),
+  IN p_background_image_url VARCHAR(1000),
+  IN p_admin_id             INT UNSIGNED
+)
+BEGIN
+  START TRANSACTION;
+    UPDATE home_hero SET is_active = FALSE;
+
+    IF p_id IS NULL THEN
+      INSERT INTO home_hero (
+        headline, subheadline,
+        primary_cta_label, primary_cta_url,
+        secondary_cta_label, secondary_cta_url,
+        background_image_url, is_active,
+        updated_by_admin_id, updated_at
+      ) VALUES (
+        p_headline, p_subheadline,
+        p_primary_cta_label, p_primary_cta_url,
+        p_secondary_cta_label, p_secondary_cta_url,
+        p_background_image_url, TRUE,
+        p_admin_id, NOW()
+      );
+    ELSE
+      UPDATE home_hero SET
+        headline             = p_headline,
+        subheadline          = p_subheadline,
+        primary_cta_label    = p_primary_cta_label,
+        primary_cta_url      = p_primary_cta_url,
+        secondary_cta_label  = p_secondary_cta_label,
+        secondary_cta_url    = p_secondary_cta_url,
+        background_image_url = p_background_image_url,
+        is_active            = TRUE,
+        updated_by_admin_id  = p_admin_id,
+        updated_at           = NOW()
+      WHERE id = p_id;
+    END IF;
+
+    CALL sp_audit_write(
+      'administrator', p_admin_id, 'update',
+      'home_hero', COALESCE(p_id, LAST_INSERT_ID()),
+      NULL, NULL, 'Home hero content updated', NULL
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_content_update_generic">
+      <description>
+        Generic UPDATE for simple single-active content entities:
+        dlab_identity, contact_info, interest_form_config.
+        Entity-specific fields are passed as a JSON payload and applied
+        in the service layer via Drizzle ORM. This procedure handles only
+        the updated_by_admin_id / updated_at stamp and audit write.
+        Use entity-specific service functions for full field updates.
+      </description>
+      <parameters>
+        <param name="p_table_name" type="VARCHAR(100)" nullable="false" note="dlab_identity | contact_info | interest_form_config"/>
+        <param name="p_entity_id"  type="INT UNSIGNED" nullable="false"/>
+        <param name="p_admin_id"   type="INT UNSIGNED" nullable="false"/>
+      </parameters>
+      <note>
+        Full field updates for these entities are handled in the Drizzle
+        ORM service layer using strongly-typed update objects. This
+        procedure only records the audit trail.
+      </note>
+      <sql><![CDATA[
+-- Audit-only procedure called after Drizzle ORM update
+CREATE PROCEDURE sp_content_audit_update(
+  IN p_table_name VARCHAR(100),
+  IN p_entity_id  INT UNSIGNED,
+  IN p_admin_id   INT UNSIGNED
+)
+BEGIN
+  CALL sp_audit_write(
+    'administrator', p_admin_id, 'update',
+    p_table_name, p_entity_id,
+    NULL, NULL,
+    CONCAT(p_table_name, ' content updated by admin ', p_admin_id),
+    NULL
+  );
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_value_proposition_reorder">
+      <description>
+        Updates sort_order for multiple value_propositions rows.
+        Takes a JSON array of {id, sort_order} pairs.
+      </description>
+      <parameters>
+        <param name="p_order_map" type="JSON"         nullable="false" note="[{id:1,sort_order:0},{id:2,sort_order:1},...]"/>
+        <param name="p_admin_id"  type="INT UNSIGNED" nullable="false"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_value_proposition_reorder(
+  IN p_order_map JSON,
+  IN p_admin_id  INT UNSIGNED
+)
+BEGIN
+  DECLARE v_i     INT DEFAULT 0;
+  DECLARE v_count INT DEFAULT JSON_LENGTH(p_order_map);
+  DECLARE v_id    INT UNSIGNED;
+  DECLARE v_order TINYINT UNSIGNED;
+
+  START TRANSACTION;
+    WHILE v_i < v_count DO
+      SET v_id    = JSON_EXTRACT(p_order_map, CONCAT('$[',v_i,'].id'));
+      SET v_order = JSON_EXTRACT(p_order_map, CONCAT('$[',v_i,'].sort_order'));
+      UPDATE value_propositions
+      SET sort_order = v_order, updated_at = NOW(), updated_by_admin_id = p_admin_id
+      WHERE id = v_id;
+      SET v_i = v_i + 1;
+    END WHILE;
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+  </procedures>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       10. MEDIA PROCEDURES
+       ═══════════════════════════════════════════════════════════════════ -->
+  <procedures group="media">
+
+    <procedure name="sp_media_register">
+      <description>
+        Inserts a media_assets record after file upload to Docker volume.
+        Called by the service layer once the file is physically saved.
+      </description>
+      <parameters>
+        <param name="p_original_filename"    type="VARCHAR(500)"  nullable="false"/>
+        <param name="p_stored_filename"      type="VARCHAR(500)"  nullable="false"/>
+        <param name="p_public_url"           type="VARCHAR(1000)" nullable="false"/>
+        <param name="p_storage_type"         type="VARCHAR(10)"   nullable="false" default="local"/>
+        <param name="p_storage_path"         type="VARCHAR(1000)" nullable="true"/>
+        <param name="p_mime_type"            type="VARCHAR(100)"  nullable="false"/>
+        <param name="p_file_size_bytes"      type="INT UNSIGNED"  nullable="true"/>
+        <param name="p_entity_type"          type="VARCHAR(100)"  nullable="true"/>
+        <param name="p_entity_id"            type="INT UNSIGNED"  nullable="true"/>
+        <param name="p_alt_text"             type="VARCHAR(300)"  nullable="true"/>
+        <param name="p_caption"              type="VARCHAR(500)"  nullable="true"/>
+        <param name="p_uploaded_by_admin_id" type="INT UNSIGNED"  nullable="true"/>
+      </parameters>
+      <returns>p_media_id INT UNSIGNED</returns>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_media_register(
+  IN  p_original_filename    VARCHAR(500),
+  IN  p_stored_filename      VARCHAR(500),
+  IN  p_public_url           VARCHAR(1000),
+  IN  p_storage_type         VARCHAR(10),
+  IN  p_storage_path         VARCHAR(1000),
+  IN  p_mime_type            VARCHAR(100),
+  IN  p_file_size_bytes      INT UNSIGNED,
+  IN  p_entity_type          VARCHAR(100),
+  IN  p_entity_id            INT UNSIGNED,
+  IN  p_alt_text             VARCHAR(300),
+  IN  p_caption              VARCHAR(500),
+  IN  p_uploaded_by_admin_id INT UNSIGNED,
+  OUT p_media_id             INT UNSIGNED
+)
+BEGIN
+  INSERT INTO media_assets (
+    original_filename, stored_filename, public_url,
+    storage_type, storage_path, mime_type, file_size_bytes,
+    entity_type, entity_id, alt_text, caption,
+    uploaded_by_admin_id, created_at
+  ) VALUES (
+    p_original_filename, p_stored_filename, p_public_url,
+    p_storage_type, p_storage_path, p_mime_type, p_file_size_bytes,
+    p_entity_type, p_entity_id, p_alt_text, p_caption,
+    p_uploaded_by_admin_id, NOW()
+  );
+  SET p_media_id = LAST_INSERT_ID();
+END;
+      ]]></sql>
+    </procedure>
+
+    <procedure name="sp_media_delete">
+      <description>
+        Deletes a media_assets record. Physical file deletion is handled
+        in the service layer BEFORE calling this procedure.
+        Rejects deletion if the media URL is still referenced by any
+        content entity (hard guard against orphan URLs).
+      </description>
+      <parameters>
+        <param name="p_media_id"  type="INT UNSIGNED" nullable="false"/>
+        <param name="p_admin_id"  type="INT UNSIGNED" nullable="false"/>
+      </parameters>
+      <sql><![CDATA[
+CREATE PROCEDURE sp_media_delete(IN p_media_id INT UNSIGNED, IN p_admin_id INT UNSIGNED)
+BEGIN
+  DECLARE v_public_url  VARCHAR(1000);
+  DECLARE v_in_use      INT DEFAULT 0;
+
+  SELECT public_url INTO v_public_url FROM media_assets WHERE id = p_media_id;
+
+  -- Check usage across content entities
+  SELECT (
+    (SELECT COUNT(*) FROM projects WHERE header_image_url = v_public_url) +
+    (SELECT COUNT(*) FROM events   WHERE header_image_url = v_public_url
+                                      OR banner_image_url = v_public_url) +
+    (SELECT COUNT(*) FROM home_hero WHERE background_image_url = v_public_url) +
+    (SELECT COUNT(*) FROM dlab_identity WHERE image_url = v_public_url) +
+    (SELECT COUNT(*) FROM value_propositions WHERE image_url = v_public_url)
+  ) INTO v_in_use;
+
+  IF v_in_use > 0 THEN
+    SIGNAL SQLSTATE '45080'
+      SET MESSAGE_TEXT = 'Media asset is still referenced by content entities';
+  END IF;
+
+  START TRANSACTION;
+    DELETE FROM media_assets WHERE id = p_media_id;
+    CALL sp_audit_write(
+      'administrator', p_admin_id, 'delete',
+      'media_assets', p_media_id,
+      JSON_OBJECT('public_url', v_public_url),
+      NULL, 'Media asset deleted', NULL
+    );
+  COMMIT;
+END;
+      ]]></sql>
+    </procedure>
+
+  </procedures>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       11. QUERY VIEWS (READ-ONLY — not procedures)
+       ═══════════════════════════════════════════════════════════════════ -->
+  <views>
+
+    <view name="vw_public_projects">
+      <description>
+        Projects visible on the public portal. Used by the public /projects
+        route. Pre-joins tags as a JSON array for single-query card rendering.
+      </description>
+      <sql><![CDATA[
+CREATE OR REPLACE VIEW vw_public_projects AS
+SELECT
+  p.id,
+  p.title,
+  p.slug,
+  p.short_description,
+  p.full_description,
+  p.target_audience,
+  p.required_skills,
+  p.participation_mode,
+  p.header_image_url,
+  p.video_url,
+  p.status,
+  p.is_highlighted,
+  p.max_collaborators,
+  p.current_collaborator_count,
+  JSON_ARRAYAGG(
+    JSON_OBJECT('id', t.id, 'name', t.name, 'slug', t.slug, 'category', t.category)
+  ) AS tags,
+  GROUP_CONCAT(
+    DISTINCT CONCAT(pmd.day_of_week, COALESCE(CONCAT(' (', pmd.notes, ')'), ''))
+    ORDER BY pmd.day_of_week SEPARATOR ', '
+  ) AS meeting_days_summary
+FROM projects p
+LEFT JOIN project_tags pt  ON pt.project_id = p.id
+LEFT JOIN tags t            ON t.id = pt.tag_id
+LEFT JOIN project_meeting_days pmd ON pmd.project_id = p.id
+WHERE p.is_visible = TRUE
+  AND p.status NOT IN ('archivado')
+GROUP BY p.id;
+      ]]></sql>
+    </view>
+
+    <view name="vw_public_events">
+      <description>Public-facing events with tags aggregated.</description>
+      <sql><![CDATA[
+CREATE OR REPLACE VIEW vw_public_events AS
+SELECT
+  e.id,
+  e.title,
+  e.slug,
+  e.type,
+  e.short_description,
+  e.full_description,
+  e.target_audience,
+  e.location,
+  e.event_date,
+  e.event_end_date,
+  e.registration_deadline,
+  e.capacity,
+  e.header_image_url,
+  e.banner_image_url,
+  e.registration_url,
+  e.status,
+  e.is_highlighted,
+  JSON_ARRAYAGG(
+    IF(t.id IS NOT NULL,
+       JSON_OBJECT('id', t.id, 'name', t.name, 'slug', t.slug),
+       NULL)
+  ) AS tags
+FROM events e
+LEFT JOIN event_tags et ON et.event_id = e.id
+LEFT JOIN tags t        ON t.id = et.tag_id
+WHERE e.is_visible = TRUE
+  AND e.status NOT IN ('cancelado')
+GROUP BY e.id;
+      ]]></sql>
+    </view>
+
+    <view name="vw_admin_collaborators">
+      <description>
+        Full collaborator list for admin panel with tag list and
+        active assignment count pre-computed.
+      </description>
+      <sql><![CDATA[
+CREATE OR REPLACE VIEW vw_admin_collaborators AS
+SELECT
+  c.id,
+  c.first_name,
+  c.middle_name,
+  c.last_name,
+  c.second_last_name,
+  c.personal_email,
+  c.usfq_email,
+  c.phone_number,
+  c.date_of_birth,
+  c.major,
+  c.current_university_year,
+  c.expected_graduation_year,
+  c.experience_description,
+  c.motivation_description,
+  c.interest_in_training,
+  c.interest_in_research,
+  c.interest_in_fabrication,
+  c.trajectory_status,
+  c.profile_complete,
+  c.intake_source,
+  c.created_at,
+  c.updated_at,
+  (SELECT COUNT(*) FROM assignments a
+   WHERE a.collaborator_id = c.id AND a.status = 'activo') AS active_assignment_count,
+  (SELECT COUNT(*) FROM applications ap
+   WHERE ap.collaborator_id = c.id
+     AND ap.status = 'pendiente')                           AS pending_application_count,
+  JSON_ARRAYAGG(
+    IF(t.id IS NOT NULL,
+       JSON_OBJECT('id', t.id, 'name', t.name, 'category', t.category),
+       NULL)
+  ) AS tags
+FROM collaborators c
+LEFT JOIN collaborator_tags ct ON ct.collaborator_id = c.id
+LEFT JOIN tags t               ON t.id = ct.tag_id
+GROUP BY c.id;
+      ]]></sql>
+    </view>
+
+    <view name="vw_collaborator_match_score">
+      <description>
+        Matching view: for each (collaborator, project) pair computes
+        a tag_overlap_count (shared tags) and a schedule_overlap flag
+        (TRUE if at least one availability_slot overlaps a project_meeting_day).
+        Used by the admin linkage suggestion feature.
+      </description>
+      <sql><![CDATA[
+CREATE OR REPLACE VIEW vw_collaborator_match_score AS
+SELECT
+  c.id                        AS collaborator_id,
+  p.id                        AS project_id,
+  p.title                     AS project_title,
+  c.trajectory_status,
+  COUNT(DISTINCT shared.tag_id) AS tag_overlap_count,
+  MAX(
+    CASE WHEN asl.day_of_week IS NOT NULL
+              AND pmd.day_of_week IS NOT NULL
+         THEN 1 ELSE 0 END
+  )                            AS has_schedule_overlap
+FROM collaborators c
+CROSS JOIN projects p
+LEFT JOIN collaborator_tags ct    ON ct.collaborator_id = c.id
+LEFT JOIN project_tags      ptag  ON ptag.project_id    = p.id
+           AND ptag.tag_id = ct.tag_id
+LEFT JOIN tags shared             ON shared.id = ct.tag_id
+           AND shared.id = ptag.tag_id
+LEFT JOIN availability_slots asl  ON asl.collaborator_id = c.id
+LEFT JOIN project_meeting_days pmd ON pmd.project_id = p.id
+           AND pmd.day_of_week = asl.day_of_week
+WHERE p.is_visible = TRUE
+  AND p.status = 'activo'
+GROUP BY c.id, p.id;
+      ]]></sql>
+    </view>
+
+  </views>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       12. SERVICE LAYER CONTRACTS
+            (SvelteKit server — calls procedures via Drizzle sql`` tag)
+       ═══════════════════════════════════════════════════════════════════ -->
+  <service-layer>
+
+    <contract name="AuthService">
+      <method name="loginAdmin">
+        <steps>
+          <step>Query administrators WHERE usfq_email = email AND is_active = TRUE</step>
+          <step>bcrypt.compare(password, row.password_hash) → 401 if mismatch</step>
+          <step>Sign JWT access token {sub: id, role:'admin', userId: id}, 15min</step>
+          <step>Generate crypto.randomBytes(64).toString('hex') refresh token</step>
+          <step>SHA-256 hash → call sp_auth_store_refresh_token</step>
+          <step>Write audit_log action='login' via sp_audit_write</step>
+          <step>Return {accessToken, refreshToken, expiresIn:900}</step>
+        </steps>
+      </method>
+      <method name="loginCollaborator">
+        <steps>
+          <step>Query collaborators WHERE personal_email = email</step>
+          <step>Guard: password_hash IS NOT NULL → 403 'Account not yet activated'</step>
+          <step>bcrypt.compare → 401 if mismatch</step>
+          <step>Sign JWT {sub: id, role:'collaborator', userId: id}</step>
+          <step>Store refresh token via sp_auth_store_refresh_token</step>
+          <step>Return {accessToken, refreshToken, expiresIn:900}</step>
+        </steps>
+      </method>
+      <method name="rotateRefreshToken">
+        <steps>
+          <step>CALL sp_auth_validate_refresh_token(incomingHash) → 401 if empty</step>
+          <step>CALL sp_auth_revoke_token(incomingHash)</step>
+          <step>Issue new access + refresh token pair</step>
+          <step>CALL sp_auth_store_refresh_token with new hash</step>
+        </steps>
+      </method>
+      <method name="sendActivationEmail">
+        <description>
+          Called after sp_application_approve commits. Generates a
+          signed activation URL token (JWT, 72h TTL, payload:
+          {purpose:'activate', collaboratorId}).
+          Sends via Resend template 'collaborator-approved-activate'.
+          Token is NOT stored in DB — it is verified by JWT signature alone.
+        </description>
+      </method>
+      <method name="activateAccount">
+        <steps>
+          <step>Verify activation JWT — check purpose='activate', not expired</step>
+          <step>Validate password strength (min 8 chars, 1 upper, 1 digit)</step>
+          <step>bcrypt.hash(password, 12) → passwordHash</step>
+          <step>CALL sp_auth_set_password(collaboratorId, passwordHash)</step>
+          <step>Return 200 with new login token pair</step>
+        </steps>
+      </method>
+    </contract>
+
+    <contract name="ApplicationService">
+      <method name="approveApplication">
+        <steps>
+          <step>CALL sp_application_approve(appId, adminId, role, notes, ip) → assignmentId</step>
+          <step>Query collaborator email from collaborators WHERE id = collaboratorId</step>
+          <step>Send Resend email: template 'collaborator-approved-activate'</step>
+          <step>Return {assignmentId, message:'Application approved'}</step>
+        </steps>
+        <error-handling>
+          Catch SQLSTATE 45020/45021/45022 → map to HTTP 409 Conflict.
+        </error-handling>
+      </method>
+      <method name="rejectApplication">
+        <steps>
+          <step>CALL sp_application_set_status(appId, 'rechazada', notes, adminId, ip)</step>
+          <step>Send Resend email: template 'collaborator-rejected'</step>
+        </steps>
+      </method>
+    </contract>
+
+    <contract name="MatchingService">
+      <method name="getSuggestionsForProject">
+        <description>
+          Queries vw_collaborator_match_score WHERE project_id = id
+          AND trajectory_status IN ('contactado','vinculado')
+          AND tag_overlap_count > 0
+          ORDER BY tag_overlap_count DESC, has_schedule_overlap DESC
+          LIMIT 10.
+          Returns suggestions with collaborator profile snippets.
+        </description>
+      </method>
+      <method name="getSuggestionsForCollaborator">
+        <description>
+          Queries vw_collaborator_match_score WHERE collaborator_id = id
+          ORDER BY tag_overlap_count DESC, has_schedule_overlap DESC
+          Returns top 5 matching active projects.
+        </description>
+      </method>
+    </contract>
+
+    <contract name="ContentService">
+      <method name="getPublicHomePage">
+        <description>
+          Parallel queries via Promise.all:
+          [0] SELECT * FROM home_hero       WHERE is_active = TRUE LIMIT 1
+          [1] SELECT * FROM dlab_identity   WHERE is_active = TRUE LIMIT 1
+          [2] SELECT * FROM value_propositions WHERE is_visible = TRUE ORDER BY sort_order
+          [3] SELECT * FROM participation_steps WHERE is_visible = TRUE ORDER BY step_number
+          [4] SELECT * FROM contact_info    WHERE is_active = TRUE LIMIT 1
+          [5] SELECT * FROM social_links    WHERE is_visible = TRUE ORDER BY sort_order
+          [6] SELECT id,title,slug,short_description,header_image_url,status
+                FROM vw_public_projects WHERE is_highlighted = TRUE LIMIT 3
+          [7] SELECT id,title,slug,short_description,header_image_url,event_date,type
+                FROM vw_public_events   WHERE is_highlighted = TRUE LIMIT 3
+          Returns unified JSON for SvelteKit load function cache (SWR 5min).
+        </description>
+      </method>
+    </contract>
+
+  </service-layer>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       13. ERROR CODE REGISTRY
+       ═══════════════════════════════════════════════════════════════════ -->
+  <error-registry>
+    <error sqlstate="45000" http="422" meaning="Generic invalid transition / business rule violation"/>
+    <error sqlstate="45001" http="409" meaning="personal_email already registered"/>
+    <error sqlstate="45002" http="409" meaning="usfq_email already registered"/>
+    <error sqlstate="45010" http="403" meaning="Collaborator status does not permit action"/>
+    <error sqlstate="45011" http="409" meaning="Duplicate active application"/>
+    <error sqlstate="45012" http="422" meaning="Project not accepting applications"/>
+    <error sqlstate="45013" http="422" meaning="Project at max capacity"/>
+    <error sqlstate="45020" http="409" meaning="Application cannot be approved from current status"/>
+    <error sqlstate="45021" http="422" meaning="Project at max capacity (approval path)"/>
+    <error sqlstate="45022" http="409" meaning="Duplicate active assignment"/>
+    <error sqlstate="45030" http="409" meaning="Active assignment already exists (manual)"/>
+    <error sqlstate="45031" http="422" meaning="Project at max capacity (manual assignment)"/>
+    <error sqlstate="45040" http="422" meaning="Assignment not in endable state"/>
+    <error sqlstate="45041" http="422" meaning="Invalid end status value"/>
+    <error sqlstate="45050" http="409" meaning="Project slug already exists"/>
+    <error sqlstate="45060" http="409" meaning="Event slug already exists"/>
+    <error sqlstate="45070" http="409" meaning="Tag slug already exists"/>
+    <error sqlstate="45071" http="403" meaning="Cannot delete system tag"/>
+    <error sqlstate="45080" http="409" meaning="Media asset in use by content entity"/>
+  </error-registry>
+
+</dlab-backend-spec>

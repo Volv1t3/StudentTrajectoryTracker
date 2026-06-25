@@ -1,0 +1,1716 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ╔══════════════════════════════════════════════════════════════════════════╗
+  ║  DLAB Student Trajectory — Backend API Implementation Specification      ║
+  ║  Version  : 1.0                                                          ║
+  ║  Date     : 2026-06                                                      ║
+  ║  Runtime  : Node.js 20 LTS + Express 5                                  ║
+  ║  DB       : MySQL (mysql2 raw queries + stored procedures)               ║
+  ║  Auth     : JWT (access + refresh, httpOnly cookie)                      ║
+  ║  Storage  : IStorageProvider — Supabase impl (Azure stub ready)         ║
+  ║  Email    : Resend API                                                   ║
+  ║  Analytics: PostHog (server-side event forwarding optional)             ║
+  ╚══════════════════════════════════════════════════════════════════════════╝
+-->
+
+<backend-spec
+  version="1.0"
+  project="PMI — DLAB Student Trajectory"
+  runtime="Node.js 20 LTS"
+  framework="Express 5"
+  db="MySQL 8"
+  date="2026-06">
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §1  ENVIRONMENT VARIABLES
+     File: backend.env  (copy to .env, never commit secrets)
+     ═══════════════════════════════════════════════════════════════════════ -->
+<env-variables>
+
+  <!-- MySQL — matches docker-compose service name -->
+  <var name="DB_HOST"     example="mysql_database"              required="true"/>
+  <var name="DB_PORT"     example="35761"                       required="true"/>
+  <var name="DB_NAME"     example="student_trajectory_tracker"  required="true"/>
+  <var name="DB_USER"     example="stt_user"                    required="true"/>
+  <var name="DB_PASSWORD" example="stt_pass_dev_2026"           required="true"/>
+
+  <!-- JWT -->
+  <var name="JWT_ACCESS_SECRET"      example="&lt;strong-random-256bit&gt;" required="true"/>
+  <var name="JWT_REFRESH_SECRET"     example="&lt;strong-random-256bit&gt;" required="true"/>
+  <var name="JWT_ACCESS_EXPIRES_IN"  example="15m"                          required="true"/>
+  <var name="JWT_REFRESH_EXPIRES_IN" example="7d"                           required="true"/>
+  <var name="JWT_ADMIN_ACCESS_EXPIRES_IN"  example="8h"                    required="true"
+       note="Admin tokens expire sooner per frontend spec"/>
+  <var name="JWT_ADMIN_REFRESH_EXPIRES_IN" example="1d"                    required="true"/>
+
+  <!-- Encryption / Tokens -->
+  <var name="BCRYPT_ROUNDS"           example="12"                          required="true"/>
+  <var name="ACTIVATION_TOKEN_SECRET" example="&lt;strong-random-256bit&gt;" required="true"/>
+  <var name="RESET_TOKEN_SECRET"      example="&lt;strong-random-256bit&gt;" required="true"/>
+  <var name="ACTIVATION_TOKEN_TTL_H"  example="24"                          required="true"
+       note="Hours — matches frontend spec: 24h activation window"/>
+  <var name="RESET_TOKEN_TTL_M"       example="60"                          required="true"
+       note="Minutes — 1h reset window"/>
+
+  <!-- Server -->
+  <var name="PORT"     example="34761"      required="true"/>
+  <var name="NODE_ENV" example="development" required="true" values="development|production|test"/>
+
+  <!-- CORS -->
+  <var name="SITE_URL" example="http://localhost:5173" required="true"
+       note="SvelteKit dev server. In production: https://dlab.usfq.edu.ec"/>
+
+  <!-- Resend Email API -->
+  <var name="RESEND_API_KEY"  example="re_xxxxxxxxxxxxxxxxxxxx"  required="true"/>
+  <var name="EMAIL_FROM"      example="noreply@dlab.usfq.edu.ec" required="true"/>
+  <var name="EMAIL_FROM_NAME" example="DLAB USFQ"                required="true"/>
+
+  <!-- Supabase Storage (MVP storage provider) -->
+  <var name="SUPABASE_URL"         example="https://xxxx.supabase.co"
+       required="true"/>
+  <var name="SUPABASE_SERVICE_KEY" example="service_role_key"
+       required="true"
+       note="Use service_role key — server-side only. NEVER expose to SvelteKit client-side."/>
+  <var name="STORAGE_PROVIDER"     example="supabase"
+       required="true"
+       values="supabase|azure"
+       note="Controls which IStorageProvider implementation is injected at startup."/>
+
+  <!-- Supabase bucket names — must exactly match buckets created in Supabase dashboard -->
+  <var name="SUPABASE_BUCKET_PROJECTS" example="pmi-frontend-proj-images"   required="true"/>
+  <var name="SUPABASE_BUCKET_EVENTS"   example="pmi-frontend-events-images"  required="true"/>
+
+  <!-- Upload limits -->
+  <var name="UPLOAD_MAX_SIZE_MB"    example="5"                              required="true"/>
+  <var name="UPLOAD_ALLOWED_TYPES"  example="image/jpeg,image/png,image/webp" required="true"/>
+
+</env-variables>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §2  PROJECT STRUCTURE
+     ═══════════════════════════════════════════════════════════════════════ -->
+<project-structure root="src/">
+
+  <dir path="config/">
+    <file name="db.js"       note="mysql2 createPool factory — reads DB_* env vars. Exports pool."/>
+    <file name="supabase.js" note="@supabase/supabase-js createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY). Singleton export."/>
+    <file name="resend.js"   note="new Resend(RESEND_API_KEY). Singleton export."/>
+    <file name="env.js"      note="dotenv.config() + zod schema validation at startup. Throws on missing required vars."/>
+  </dir>
+
+  <dir path="storage/" note="IStorageProvider interface pattern — swap Supabase for Azure without touching business logic.">
+    <file name="IStorageProvider.js"
+          note="JSDoc @interface. Defines: upload(bucket,path,buffer,mimetype):{publicUrl}, delete(bucket,path):void, getPublicUrl(bucket,path):string"/>
+    <file name="SupabaseStorageProvider.js"
+          note="Implements IStorageProvider using @supabase/supabase-js storage API. MVP active implementation."/>
+    <file name="AzureStorageProvider.js"
+          note="STUB — all methods throw AppError(ERR_STORAGE_NOT_IMPLEMENTED, 501). Swap in when Azure credentials ready. Future deps: @azure/storage-blob."/>
+    <file name="storageFactory.js"
+          note="Reads STORAGE_PROVIDER env var. Returns SupabaseStorageProvider or AzureStorageProvider singleton. Throws on unknown value."/>
+  </dir>
+
+  <dir path="middleware/">
+    <file name="auth.js"         note="verifyAccessToken, verifyAdminToken — Express middleware functions."/>
+    <file name="upload.js"       note="multer({ storage: multer.memoryStorage() }) configured with size + MIME validation. NO disk writes."/>
+    <file name="errorHandler.js" note="Global Express error handler. Maps AppError to HTTP response. Hides stack in production."/>
+    <file name="rateLimiter.js"  note="express-rate-limit. Applied to auth mutation routes."/>
+    <file name="auditLogger.js"  note="Middleware/helper that writes to audit_log table after successful mutations."/>
+  </dir>
+
+  <dir path="routes/">
+    <file name="auth.routes.js"        note="POST /api/auth/*"/>
+    <file name="admin.auth.routes.js"  note="POST /api/admin/auth/*"/>
+    <file name="app.routes.js"         note="GET|PUT|POST|DELETE /api/app/* — collaborator portal, auth-guarded"/>
+    <file name="public.routes.js"      note="GET /api/public/*"/>
+    <file name="admin.routes.js"       note="All /api/admin/* CRUD routes"/>
+    <file name="media.routes.js"       note="POST|DELETE /api/media/* — admin-guarded"/>
+  </dir>
+
+  <dir path="controllers/">
+    <file name="auth.controller.js"/>
+    <file name="admin.auth.controller.js"/>
+    <file name="collaborator.controller.js"       note="Profile CRUD for own account"/>
+    <file name="application.controller.js"        note="Collaborator&#39;s own applications"/>
+    <file name="project.controller.js"            note="Public project reads"/>
+    <file name="event.controller.js"              note="Public event reads"/>
+    <file name="tag.controller.js"                note="Public tag list"/>
+    <file name="content.controller.js"            note="Public CMS content reads"/>
+    <file name="media.controller.js"              note="Admin media upload/delete via IStorageProvider"/>
+    <file name="admin.collaborator.controller.js" note="Admin CRUD on collaborators"/>
+    <file name="admin.application.controller.js"  note="Admin application review"/>
+    <file name="admin.assignment.controller.js"   note="Admin assignment management"/>
+    <file name="admin.project.controller.js"      note="Admin project CRUD"/>
+    <file name="admin.event.controller.js"        note="Admin event CRUD"/>
+    <file name="admin.tag.controller.js"          note="Admin tag management"/>
+    <file name="admin.content.controller.js"      note="Admin CMS content management"/>
+  </dir>
+
+  <dir path="services/">
+    <file name="auth.service.js"  note="Token generation, verification, rotation helpers."/>
+    <file name="email.service.js" note="Resend wrappers: sendActivation, sendAdminNewRegistration, sendCollaboratorApproved, sendCollaboratorRejected, sendPasswordReset"/>
+    <file name="media.service.js" note="Calls storageFactory singleton. Resolves bucket by resource_type. Manages media_assets DB record."/>
+  </dir>
+
+  <dir path="queries/">
+    <file name="collaborator.queries.js"/>
+    <file name="project.queries.js"/>
+    <file name="event.queries.js"/>
+    <file name="application.queries.js"/>
+    <file name="assignment.queries.js"/>
+    <file name="tag.queries.js"/>
+    <file name="content.queries.js"/>
+    <file name="media.queries.js"/>
+    <file name="audit.queries.js"/>
+  </dir>
+
+  <dir path="validators/">
+    <file name="auth.validator.js"/>
+    <file name="project.validator.js"/>
+    <file name="event.validator.js"/>
+    <file name="application.validator.js"/>
+    <file name="content.validator.js"/>
+    <file name="collaborator.validator.js"/>
+  </dir>
+
+  <dir path="utils/">
+    <file name="AppError.js"    note="class AppError extends Error { constructor(code, message, httpStatus) }"/>
+    <file name="jwt.utils.js"   note="signAccessToken, signRefreshToken, verifyToken helpers. Separate functions for admin vs collaborator role claim."/>
+    <file name="token.utils.js" note="generateHmacToken(secret), verifyHmacToken(token, secret, storedHash, expiresAt)"/>
+    <file name="paginate.js"    note="parsePagination(query) → { page, limit, offset }"/>
+    <file name="slug.utils.js"  note="generateSlug(title) — URL-safe, unique via DB check"/>
+  </dir>
+
+  <file name="app.js"    note="Express app bootstrap: cors, helmet, morgan, json body parser, routes, errorHandler."/>
+  <file name="server.js" note="http.createServer(app).listen(PORT)"/>
+
+</project-structure>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §3  STORAGE INTERFACE PATTERN
+     ═══════════════════════════════════════════════════════════════════════ -->
+<storage-interface>
+
+  <interface name="IStorageProvider" file="src/storage/IStorageProvider.js">
+    <purpose>Defines the contract all storage backends must implement. Business logic always calls this interface — never a concrete provider directly.</purpose>
+    <method name="upload">
+      <param name="bucket"   type="string" note="Resolved bucket name from env. e.g. pmi-frontend-proj-images"/>
+      <param name="path"     type="string" note="Object path inside bucket. Format: {resource_type}/{uuid}-{sanitized_filename}.{ext}"/>
+      <param name="buffer"   type="Buffer" note="File buffer from multer memoryStorage — no temp files on disk"/>
+      <param name="mimetype" type="string" note="Validated MIME type. e.g. image/webp"/>
+      <returns>Promise&lt;{ publicUrl: string }&gt;</returns>
+    </method>
+    <method name="delete">
+      <param name="bucket" type="string"/>
+      <param name="path"   type="string"/>
+      <returns>Promise&lt;void&gt;</returns>
+    </method>
+    <method name="getPublicUrl">
+      <param name="bucket" type="string"/>
+      <param name="path"   type="string"/>
+      <returns>string — synchronous, no network call</returns>
+    </method>
+  </interface>
+
+  <implementation name="SupabaseStorageProvider" file="src/storage/SupabaseStorageProvider.js">
+    <dependency>@supabase/supabase-js v2</dependency>
+    <init>createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)</init>
+    <upload-impl>supabase.storage.from(bucket).upload(path, buffer, { contentType: mimetype, upsert: true })</upload-impl>
+    <delete-impl>supabase.storage.from(bucket).remove([path])</delete-impl>
+    <get-public-url-impl>supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl</get-public-url-impl>
+    <error-handling>Supabase error response → throw new AppError(ERR_STORAGE_UPLOAD_FAILED, 502)</error-handling>
+  </implementation>
+
+  <implementation name="AzureStorageProvider" file="src/storage/AzureStorageProvider.js">
+    <status>STUB — MVP placeholder only</status>
+    <all-methods-throw>new AppError(ERR_STORAGE_NOT_IMPLEMENTED, "Azure storage not yet configured.", 501)</all-methods-throw>
+    <future-dependency>@azure/storage-blob BlobServiceClient</future-dependency>
+    <future-env-vars>AZURE_STORAGE_CONNECTION_STRING, AZURE_CONTAINER_PROJECTS, AZURE_CONTAINER_EVENTS</future-env-vars>
+    <activation-note>Remove stub throws, implement BlobServiceClient calls, set STORAGE_PROVIDER=azure in env.</activation-note>
+  </implementation>
+
+  <factory file="src/storage/storageFactory.js">
+    <logic>
+      let _instance = null;
+      export function getStorageProvider() {
+        if (_instance) return _instance;
+        switch (process.env.STORAGE_PROVIDER) {
+          case 'supabase': _instance = new SupabaseStorageProvider(); break;
+          case 'azure':    _instance = new AzureStorageProvider();    break;
+          default: throw new Error('Unknown STORAGE_PROVIDER: ' + process.env.STORAGE_PROVIDER);
+        }
+        return _instance;
+      }
+    </logic>
+  </factory>
+
+  <bucket-routing>
+    <rule resource-type="project" env-var="SUPABASE_BUCKET_PROJECTS" value="pmi-frontend-proj-images"
+          fields-using-this="projects.header_image_url"/>
+    <rule resource-type="event" env-var="SUPABASE_BUCKET_EVENTS" value="pmi-frontend-events-images"
+          fields-using-this="events.header_image_url, events.banner_image_url"/>
+  </bucket-routing>
+
+  <object-path-convention>
+    Format: {resource_type}/{uuidv4()}-{sanitize(original_filename)}.{ext}
+    Examples:
+      projects/a1b2c3d4-hero-image.webp
+      events/e5f6g7h8-workshop-banner.png
+    Sanitize: lowercase, replace spaces with hyphens, strip special chars, max 80 chars.
+  </object-path-convention>
+
+</storage-interface>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §4  GLOBAL CONVENTIONS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<global-conventions>
+
+  <response-envelope>
+    <success-shape>{ "success": true, "data": &lt;payload&gt;, "meta"?: { "page", "limit", "total" } }</success-shape>
+    <error-shape>{ "success": false, "error": { "code": "ERR_CODE", "message": "human readable" } }</error-shape>
+    <note>All responses — including 4xx/5xx — use this envelope.</note>
+  </response-envelope>
+
+  <http-status-map>
+    <entry code="200" meaning="OK — successful read or update"/>
+    <entry code="201" meaning="Created — resource created"/>
+    <entry code="204" meaning="No Content — successful delete"/>
+    <entry code="400" meaning="Bad Request — validation failure or missing params"/>
+    <entry code="401" meaning="Unauthenticated — missing, invalid, or expired token"/>
+    <entry code="403" meaning="Forbidden — valid token but insufficient role"/>
+    <entry code="404" meaning="Not Found"/>
+    <entry code="409" meaning="Conflict — duplicate email, slug, or constraint violation"/>
+    <entry code="422" meaning="Unprocessable — business rule violation"/>
+    <entry code="429" meaning="Too Many Requests — rate limit hit"/>
+    <entry code="500" meaning="Internal Server Error — unhandled exception"/>
+    <entry code="501" meaning="Not Implemented — storage provider stub called"/>
+    <entry code="502" meaning="Bad Gateway — upstream Supabase or Resend failure"/>
+  </http-status-map>
+
+  <auth-conventions>
+    <access-token>Short-lived JWT (15m). Sent as Authorization: Bearer &lt;token&gt; header.</access-token>
+    <refresh-token>Long-lived JWT (7d collaborator / 1d admin). Stored in httpOnly, SameSite=Strict cookie named refresh_token. Hashed copy stored in refresh_tokens table.</refresh-token>
+    <role-claim>JWT payload: { sub: userId, role: "collaborator"|"admin", iat, exp }</role-claim>
+  </auth-conventions>
+
+  <pagination>
+    <query-param name="page"  type="integer" default="1"/>
+    <query-param name="limit" type="integer" default="20" max="100"/>
+    <response-meta>{ page, limit, total, totalPages }</response-meta>
+  </pagination>
+
+  <cors>
+    <origin>process.env.SITE_URL only</origin>
+    <credentials>true</credentials>
+    <methods>GET, POST, PUT, PATCH, DELETE, OPTIONS</methods>
+  </cors>
+
+  <security-headers>helmet() defaults — CSP, X-Frame-Options DENY, X-Content-Type-Options nosniff, HSTS in production</security-headers>
+
+  <audit-log-rule>
+    All admin mutations (create, update, delete, status_change, approve, reject, assign, unassign)
+    must call audit.queries.insertAuditLog({ actor_type, actor_id, action, entity_type, entity_id, previous_value, new_value, description, ip_address })
+    after successful DB write. Written by service layer, not triggers.
+  </audit-log-rule>
+
+</global-conventions>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §5  MIDDLEWARE DEFINITIONS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<middleware>
+
+  <item name="verifyAccessToken" file="src/middleware/auth.js">
+    <steps>
+      1. Extract Authorization header; split "Bearer &lt;token&gt;".
+      2. If missing → 401 ERR_TOKEN_MISSING.
+      3. jwt.verify(token, JWT_ACCESS_SECRET).
+      4. If TokenExpiredError → 401 ERR_TOKEN_EXPIRED.
+      5. If JsonWebTokenError → 401 ERR_TOKEN_INVALID.
+      6. If payload.role !== "collaborator" → 403 ERR_FORBIDDEN.
+      7. Attach req.user = { id: payload.sub, role: "collaborator" }. Call next().
+    </steps>
+  </item>
+
+  <item name="verifyAdminToken" file="src/middleware/auth.js">
+    <steps>
+      1–5. Same token extraction and verification steps as above.
+      6. Verify payload.role === "admin". If not → 403 ERR_FORBIDDEN.
+      7. Attach req.admin = { id: payload.sub, role: "admin" }. Call next().
+    </steps>
+  </item>
+
+  <item name="upload" file="src/middleware/upload.js">
+    <config>
+      multer({ storage: multer.memoryStorage(),
+               limits: { fileSize: UPLOAD_MAX_SIZE_MB * 1024 * 1024 },
+               fileFilter: (req, file, cb) =&gt; {
+                 const allowed = UPLOAD_ALLOWED_TYPES.split(",");
+                 cb(null, allowed.includes(file.mimetype));
+               }
+             })
+    </config>
+    <field name="image" maxCount="1"/>
+    <no-disk-writes>Files live only in req.file.buffer (RAM) until passed to IStorageProvider.upload(). Express process never writes to disk.</no-disk-writes>
+    <errors>
+      LIMIT_FILE_SIZE → 400 ERR_FILE_TOO_LARGE
+      fileFilter rejection → 400 ERR_INVALID_FILE_TYPE
+    </errors>
+  </item>
+
+  <item name="rateLimiter" file="src/middleware/rateLimiter.js">
+    <config>windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false</config>
+    <applied-to>POST /api/auth/register, POST /api/auth/login, POST /api/auth/forgot-password</applied-to>
+    <error>429 ERR_RATE_LIMITED</error>
+  </item>
+
+  <item name="errorHandler" file="src/middleware/errorHandler.js">
+    <logic>
+      (err, req, res, next) =&gt;
+        if err instanceof AppError: res.status(err.httpStatus).json({ success:false, error:{ code:err.code, message:err.message } })
+        else: log full error internally; res.status(500).json({ success:false, error:{ code:"ERR_INTERNAL", message:"Internal server error" } })
+        (stack trace NEVER sent to client in production)
+    </logic>
+  </item>
+
+</middleware>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §6  EMAIL SERVICE — RESEND
+     ═══════════════════════════════════════════════════════════════════════ -->
+<email-service file="src/services/email.service.js">
+
+  <client>new Resend(process.env.RESEND_API_KEY) — singleton from config/resend.js</client>
+  <send-method>resend.emails.send({ from: "${EMAIL_FROM_NAME} &lt;${EMAIL_FROM}&gt;", to, subject, html })</send-method>
+  <error-handling>Resend API error → throw new AppError(ERR_EMAIL_SEND_FAILED, 502). Non-blocking for registration (log + continue).</error-handling>
+  <templates>HTML is inline template literal functions. React Email upgrade is a future scope item.</templates>
+
+  <template name="sendActivationEmail">
+    <trigger-endpoint>POST /api/auth/register (on success)</trigger-endpoint>
+    <to>newly registered collaborator personal_email</to>
+    <subject>Activa tu cuenta en DLAB USFQ</subject>
+    <vars>firstName, activationUrl (SITE_URL + /activate?token=HMAC_TOKEN)</vars>
+    <body-summary>Welcome message, activation CTA button, 24h expiry warning, contact link.</body-summary>
+  </template>
+
+  <template name="sendAdminNewRegistration">
+    <trigger-endpoint>POST /api/auth/register (on success)</trigger-endpoint>
+    <to>all active administrators — SELECT personal_email FROM administrators WHERE is_active = true</to>
+    <subject>Nueva solicitud de colaborador — [firstName lastName]</subject>
+    <vars>firstName, lastName, email, major, current_university_year, adminReviewUrl (SITE_URL + /admin/colaboradores/ID)</vars>
+    <body-summary>Registration summary card with direct link to admin review page.</body-summary>
+  </template>
+
+  <template name="sendCollaboratorApproved">
+    <trigger-endpoint>PATCH /api/admin/collaborators/:id/status when new_status = aprobado/contactado</trigger-endpoint>
+    <to>collaborator personal_email</to>
+    <subject>¡Fuiste aprobado en DLAB! Activa tu cuenta</subject>
+    <vars>firstName, activationUrl (regenerated/extended if expired)</vars>
+    <body-summary>Approval confirmation, activation link, next steps summary.</body-summary>
+  </template>
+
+  <template name="sendCollaboratorRejected">
+    <trigger-endpoint>PATCH /api/admin/collaborators/:id/status when new_status = inactivo (rejection flow)</trigger-endpoint>
+    <to>collaborator personal_email</to>
+    <subject>Actualización sobre tu solicitud a DLAB</subject>
+    <vars>firstName, reason (optional, from admin note)</vars>
+    <body-summary>Respectful rejection message, encouragement to reapply, contact link.</body-summary>
+  </template>
+
+  <template name="sendPasswordReset">
+    <trigger-endpoint>POST /api/auth/forgot-password (when email found)</trigger-endpoint>
+    <to>collaborator personal_email</to>
+    <subject>Restablecer contraseña — DLAB USFQ</subject>
+    <vars>firstName, resetUrl (SITE_URL + /activate?token=HMAC_RESET_TOKEN&amp;mode=reset), expiryMinutes</vars>
+    <body-summary>Reset link with expiry warning. Security note: if not requested, ignore.</body-summary>
+  </template>
+
+</email-service>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §7  COLLABORATOR AUTH ROUTES
+     Prefix: /api/auth
+     ═══════════════════════════════════════════════════════════════════════ -->
+<route-group prefix="/api/auth">
+
+  <endpoint id="AUTH-01" method="POST" path="/register" auth="none" rate-limited="true">
+    <description>
+      Register a new collaborator via the /signup interest form.
+      Account is created with is_active=false, password_hash=NULL, trajectory_status=nuevo.
+      Password is NOT collected here — it is set later during account activation.
+    </description>
+    <request-body>
+      <field name="first_name"             type="string"    required="true"  max="100"/>
+      <field name="middle_name"            type="string"    required="false" max="100"/>
+      <field name="last_name"              type="string"    required="true"  max="100"/>
+      <field name="second_last_name"       type="string"    required="false" max="100"/>
+      <field name="personal_email"         type="email"     required="true"/>
+      <field name="usfq_email"             type="email"     required="false"
+             validate="must-end-with @usfq.edu.ec if provided"/>
+      <field name="major"                  type="string"    required="true"  max="150"/>
+      <field name="current_university_year" type="integer"  required="true"  min="1" max="6"/>
+      <field name="expected_graduation_year" type="integer" required="true"/>
+      <field name="experience_description" type="string"    required="false"/>
+      <field name="motivation_description" type="string"    required="true"  min="50"/>
+      <field name="interest_in_training"   type="boolean"   required="false" default="false"/>
+      <field name="interest_in_research"   type="boolean"   required="false" default="false"/>
+      <field name="interest_in_fabrication" type="boolean"  required="false" default="false"/>
+      <field name="intake_source"          type="string"    required="false" max="100"/>
+      <field name="tag_ids"                type="integer[]" required="false"
+             note="IDs from tags table — collaborator interest tags"/>
+    </request-body>
+    <responses>
+      <response status="201">{ "data": { "message": "Revisa tu correo para activar tu cuenta." } }</response>
+      <response status="409" code="ERR_EMAIL_ALREADY_EXISTS">personal_email already registered</response>
+      <response status="400" code="ERR_VALIDATION">Field validation failure — returns field-level errors</response>
+    </responses>
+    <side-effects>
+      <effect>INSERT INTO collaborators — trajectory_status=nuevo, is_active=false, password_hash=NULL</effect>
+      <effect>INSERT INTO collaborator_tags for each tag_id provided</effect>
+      <effect>Generate HMAC activation token via token.utils → INSERT INTO activation_tokens (collaborator_id, token_hash, expires_at)</effect>
+      <effect>email.sendActivationEmail(collaborator) — async, non-blocking</effect>
+      <effect>email.sendAdminNewRegistration(collaborator) — async, non-blocking, to all active admins</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="AUTH-02" method="POST" path="/activate" auth="none">
+    <description>
+      Activate account using the HMAC token from the email link.
+      Sets the collaborator password for the first time.
+      Corresponds to /activate route in SvelteKit frontend (form action: setPassword).
+    </description>
+    <request-body>
+      <field name="token"    type="string" required="true"  note="Raw HMAC token from email URL query param"/>
+      <field name="password" type="string" required="true"  min="8"
+             validate="at-least-1-uppercase, at-least-1-number — matches frontend spec"/>
+    </request-body>
+    <responses>
+      <response status="200">{ "data": { "message": "Cuenta activada exitosamente." } }</response>
+      <response status="400" code="ERR_TOKEN_INVALID">Token does not match stored hash</response>
+      <response status="400" code="ERR_TOKEN_EXPIRED">Token exists but expires_at is in the past</response>
+      <response status="409" code="ERR_ALREADY_ACTIVATED">collaborator.is_active already true</response>
+      <response status="400" code="ERR_VALIDATION">Password does not meet policy</response>
+    </responses>
+    <side-effects>
+      <effect>Verify HMAC token: hash input token, compare against activation_tokens.token_hash where used=false</effect>
+      <effect>Check expires_at &gt; NOW()</effect>
+      <effect>bcrypt.hash(password, BCRYPT_ROUNDS) → UPDATE collaborators SET password_hash, is_active=true, updated_at=NOW()</effect>
+      <effect>UPDATE activation_tokens SET used=true, used_at=NOW() WHERE token_hash=hash</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="AUTH-03" method="POST" path="/login" auth="none" rate-limited="true">
+    <description>Authenticate collaborator. Returns access token + sets httpOnly refresh cookie.</description>
+    <request-body>
+      <field name="email"    type="email"  required="true"/>
+      <field name="password" type="string" required="true"/>
+    </request-body>
+    <responses>
+      <response status="200">
+        { "data": { "access_token": "&lt;JWT&gt;",
+                    "collaborator": { "id", "first_name", "last_name", "trajectory_status", "is_active" } } }
+        Sets httpOnly cookie: refresh_token (7d, SameSite=Strict, Secure in production)
+      </response>
+      <response status="401" code="ERR_INVALID_CREDENTIALS">Wrong email or password — never specify which</response>
+      <response status="403" code="ERR_ACCOUNT_NOT_ACTIVE">Account exists but is_active=false</response>
+    </responses>
+    <side-effects>
+      <effect>SELECT collaborator WHERE personal_email = email (or usfq_email)</effect>
+      <effect>bcrypt.compare(password, password_hash)</effect>
+      <effect>signAccessToken({ sub: id, role: "collaborator" }, JWT_ACCESS_SECRET, JWT_ACCESS_EXPIRES_IN)</effect>
+      <effect>signRefreshToken → hash → INSERT INTO refresh_tokens (user_type=collaborator, user_id, token_hash, expires_at, user_agent, ip_address)</effect>
+      <effect>Set httpOnly refresh_token cookie</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="AUTH-04" method="POST" path="/logout" auth="verifyAccessToken">
+    <description>Invalidate session. Clears refresh token from DB and cookie.</description>
+    <responses>
+      <response status="204">No content</response>
+    </responses>
+    <side-effects>
+      <effect>Read refresh_token cookie → hash → DELETE FROM refresh_tokens WHERE token_hash=hash AND user_id=req.user.id</effect>
+      <effect>Clear refresh_token cookie (set maxAge=0)</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="AUTH-05" method="POST" path="/refresh" auth="none — reads httpOnly cookie">
+    <description>Issue new access token via refresh token rotation. Detects token reuse (stolen token protection).</description>
+    <responses>
+      <response status="200">{ "data": { "access_token": "&lt;new JWT&gt;" } }</response>
+      <response status="401" code="ERR_TOKEN_INVALID">Token not found in DB or hash mismatch</response>
+      <response status="401" code="ERR_TOKEN_EXPIRED">expires_at in the past</response>
+      <response status="401" code="ERR_TOKEN_REVOKED">is_revoked=true — all sessions revoked</response>
+      <response status="401" code="ERR_TOKEN_REUSE">Token was already used → revoke ALL sessions for this user (security incident)</response>
+    </responses>
+    <side-effects>
+      <effect>Read refresh_token cookie → hash → SELECT FROM refresh_tokens</effect>
+      <effect>If is_revoked OR token hash not found → revoke all tokens for user → 401 ERR_TOKEN_REUSE</effect>
+      <effect>If valid: DELETE old token row, INSERT new token row (rotation), set new cookie, return new access_token</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="AUTH-06" method="POST" path="/forgot-password" auth="none" rate-limited="true">
+    <description>
+      Request password reset email. Always returns 200 regardless of whether email exists
+      to prevent email enumeration attacks (per frontend spec).
+    </description>
+    <request-body>
+      <field name="email" type="email" required="true"/>
+    </request-body>
+    <responses>
+      <response status="200">{ "data": { "message": "Si tu correo está registrado y activo, recibirás un enlace en los próximos minutos." } }</response>
+    </responses>
+    <side-effects>
+      <effect>SELECT collaborator WHERE personal_email=email AND is_active=true</effect>
+      <effect>If found: generate HMAC reset token → INSERT INTO password_reset_tokens (collaborator_id, token_hash, expires_at) — TTL: RESET_TOKEN_TTL_M minutes</effect>
+      <effect>email.sendPasswordReset(collaborator) — only if found</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="AUTH-07" method="POST" path="/reset-password" auth="none">
+    <description>Complete password reset flow. Token is HMAC from reset email link (reuses /activate route pattern with mode=reset query param in frontend).</description>
+    <request-body>
+      <field name="token"        type="string" required="true"/>
+      <field name="new_password" type="string" required="true" min="8"
+             validate="at-least-1-uppercase, at-least-1-number"/>
+      <field name="confirm"      type="string" required="true" must-match="new_password"/>
+    </request-body>
+    <responses>
+      <response status="200">{ "data": { "message": "Contraseña actualizada exitosamente." } }</response>
+      <response status="400" code="ERR_TOKEN_INVALID"/>
+      <response status="400" code="ERR_TOKEN_EXPIRED"/>
+      <response status="400" code="ERR_VALIDATION">Passwords do not match or policy violation</response>
+    </responses>
+    <side-effects>
+      <effect>Verify HMAC token against password_reset_tokens</effect>
+      <effect>bcrypt.hash(new_password, BCRYPT_ROUNDS) → UPDATE collaborators SET password_hash, updated_at</effect>
+      <effect>Mark reset token used</effect>
+      <effect>UPDATE refresh_tokens SET is_revoked=true WHERE user_type=collaborator AND user_id=id (force re-login on all devices)</effect>
+    </side-effects>
+  </endpoint>
+
+</route-group>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §8  ADMIN AUTH ROUTES
+     Prefix: /api/admin/auth
+     ═══════════════════════════════════════════════════════════════════════ -->
+<route-group prefix="/api/admin/auth">
+
+  <endpoint id="AAUTH-01" method="POST" path="/login" auth="none">
+    <description>Authenticate administrator. Returns access token (8h) + httpOnly refresh cookie (1d).</description>
+    <request-body>
+      <field name="email"    type="email"  required="true"/>
+      <field name="password" type="string" required="true"/>
+    </request-body>
+    <responses>
+      <response status="200">
+        { "data": { "access_token": "&lt;JWT role=admin&gt;",
+                    "admin": { "id", "first_name", "last_name", "personal_email" } } }
+        Sets httpOnly cookie: refresh_token (1d, SameSite=Strict)
+      </response>
+      <response status="401" code="ERR_INVALID_CREDENTIALS"/>
+      <response status="403" code="ERR_NOT_ADMIN">Email exists in collaborators but not administrators</response>
+      <response status="403" code="ERR_ACCOUNT_NOT_ACTIVE">Admin account is_active=false</response>
+    </responses>
+    <side-effects>
+      <effect>SELECT FROM administrators WHERE personal_email=email OR usfq_email=email AND is_active=true</effect>
+      <effect>bcrypt.compare</effect>
+      <effect>signAccessToken({ sub: id, role: "admin" }, JWT_ACCESS_SECRET, JWT_ADMIN_ACCESS_EXPIRES_IN)</effect>
+      <effect>INSERT INTO refresh_tokens (user_type=administrator, ...)</effect>
+      <effect>INSERT INTO audit_log: action=login</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="AAUTH-02" method="POST" path="/logout" auth="verifyAdminToken">
+    <responses><response status="204">No content</response></responses>
+    <side-effects>
+      <effect>DELETE refresh token row + clear cookie</effect>
+      <effect>INSERT INTO audit_log: action=login (logout event)</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="AAUTH-03" method="POST" path="/refresh" auth="none — reads httpOnly cookie">
+    <description>Refresh admin access token. Same rotation + reuse detection as collaborator refresh.</description>
+    <responses>
+      <response status="200">{ "data": { "access_token": "&lt;new JWT role=admin&gt;" } }</response>
+      <response status="401" code="ERR_TOKEN_INVALID|ERR_TOKEN_EXPIRED|ERR_TOKEN_REUSE"/>
+    </responses>
+  </endpoint>
+
+</route-group>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §9  COLLABORATOR PORTAL ROUTES
+     Prefix: /api/app
+     Auth: verifyAccessToken on all routes
+     ═══════════════════════════════════════════════════════════════════════ -->
+<route-group prefix="/api/app" auth="verifyAccessToken">
+
+  <endpoint id="APP-01" method="GET" path="/profile">
+    <description>Get own full profile including tags, trajectory_status, assignment count.</description>
+    <query>
+      SELECT c.*, GROUP_CONCAT(DISTINCT t.id) as tag_ids, GROUP_CONCAT(DISTINCT t.name) as tag_names
+      FROM collaborators c
+      LEFT JOIN collaborator_tags ct ON ct.collaborator_id = c.id
+      LEFT JOIN tags t ON t.id = ct.tag_id
+      WHERE c.id = req.user.id
+      GROUP BY c.id
+    </query>
+    <responses>
+      <response status="200">{ "data": CollaboratorProfile }</response>
+      <response status="404" code="ERR_NOT_FOUND">Should not occur if token is valid; safety guard.</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="APP-02" method="PUT" path="/profile">
+    <description>Update own editable profile fields. Read-only fields (email, trajectory_status) are ignored even if sent.</description>
+    <request-body>
+      <field name="experience_description"  type="string"    required="false"/>
+      <field name="motivation_description"  type="string"    required="false" min="50"/>
+      <field name="interest_in_training"    type="boolean"   required="false"/>
+      <field name="interest_in_research"    type="boolean"   required="false"/>
+      <field name="interest_in_fabrication" type="boolean"   required="false"/>
+      <field name="tag_ids"                 type="integer[]" required="false" note="Full replacement of collaborator_tags"/>
+    </request-body>
+    <responses>
+      <response status="200">{ "data": { updated CollaboratorProfile } }</response>
+      <response status="400" code="ERR_VALIDATION"/>
+    </responses>
+    <side-effects>
+      <effect>UPDATE collaborators SET editable fields WHERE id=req.user.id</effect>
+      <effect>DELETE FROM collaborator_tags WHERE collaborator_id=req.user.id; re-INSERT new tag_ids</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="APP-03" method="GET" path="/applications">
+    <description>List own applications with project snapshot. Matches /my-applications frontend route.</description>
+    <query-params>
+      <param name="status" type="string" values="pendiente|en_revision|aprobada|rechazada|retirada"/>
+    </query-params>
+    <query>
+      SELECT ap.*, p.title as project_title, p.slug as project_slug, p.status as project_status
+      FROM applications ap
+      JOIN projects p ON p.id = ap.project_id
+      WHERE ap.collaborator_id = req.user.id
+      [AND ap.status = :status if provided]
+      ORDER BY ap.applied_at DESC
+    </query>
+    <responses>
+      <response status="200">{ "data": ApplicationWithProject[] }</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="APP-04" method="POST" path="/applications">
+    <description>
+      Apply to a project. Requires trajectory_status to be activo (or contactado) per entity model.
+      Corresponds to /projects/[slug]/apply frontend route form action.
+    </description>
+    <request-body>
+      <field name="project_id"          type="integer" required="true"/>
+      <field name="reason_for_applying" type="string"  required="true" min="20" max="2000"/>
+    </request-body>
+    <responses>
+      <response status="201">{ "data": { "application_id": int, "status": "pendiente" } }</response>
+      <response status="409" code="ERR_DUPLICATE_APPLICATION">UNIQUE (collaborator_id, project_id) violated</response>
+      <response status="422" code="ERR_NOT_ELIGIBLE">trajectory_status is not activo or contactado</response>
+      <response status="422" code="ERR_PROJECT_NOT_ACCEPTING">project.status is not activo</response>
+      <response status="404" code="ERR_NOT_FOUND">project_id does not exist or is_visible=false</response>
+    </responses>
+    <side-effects>
+      <effect>Verify collaborator.trajectory_status IN (activo, contactado, vinculado)</effect>
+      <effect>Verify project.status = activo AND project.is_visible = true</effect>
+      <effect>INSERT INTO applications (collaborator_id, project_id, reason_for_applying, status=pendiente, applied_at=NOW())</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="APP-05" method="DELETE" path="/applications/:applicationId">
+    <description>Withdraw own application. Only allowed when status=pendiente.</description>
+    <responses>
+      <response status="204">No content</response>
+      <response status="403" code="ERR_CANNOT_WITHDRAW">status is not pendiente (already under review)</response>
+      <response status="404" code="ERR_NOT_FOUND">Application not found or belongs to another collaborator</response>
+    </responses>
+    <side-effects>
+      <effect>UPDATE applications SET status=retirada, updated_at=NOW() WHERE id=applicationId AND collaborator_id=req.user.id AND status=pendiente</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="APP-06" method="GET" path="/availability">
+    <description>Get own availability slots.</description>
+    <responses>
+      <response status="200">{ "data": AvailabilitySlot[] }</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="APP-07" method="PUT" path="/availability">
+    <description>Replace all availability slots (full replacement pattern).</description>
+    <request-body>
+      <field name="slots" type="array" required="true">
+        <item>
+          <field name="day_of_week" type="enum" values="lunes|martes|miercoles|jueves|viernes|sabado|domingo"/>
+          <field name="time_from"   type="time" note="HH:MM format"/>
+          <field name="time_to"     type="time" note="HH:MM format, must be after time_from"/>
+          <field name="notes"       type="string" required="false" max="200"/>
+        </item>
+      </field>
+    </request-body>
+    <responses>
+      <response status="200">{ "data": AvailabilitySlot[] }</response>
+      <response status="400" code="ERR_VALIDATION"/>
+    </responses>
+    <side-effects>
+      <effect>DELETE FROM availability_slots WHERE collaborator_id=req.user.id; INSERT new slots in transaction</effect>
+    </side-effects>
+  </endpoint>
+
+</route-group>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §10  PUBLIC ROUTES
+     Prefix: /api/public
+     Auth: none
+     ═══════════════════════════════════════════════════════════════════════ -->
+<route-group prefix="/api/public" auth="none">
+
+  <endpoint id="PUB-01" method="GET" path="/projects">
+    <description>List publicly visible projects. Powers /projects page with filter bar.</description>
+    <query-params>
+      <param name="tag"    type="string"  note="Tag slug — JOIN filter"/>
+      <param name="status" type="string"  values="activo|en_pausa|completado|proximo"/>
+      <param name="search" type="string"  note="LIKE on title and short_description"/>
+      <param name="page"   type="integer" default="1"/>
+      <param name="limit"  type="integer" default="12"/>
+    </query-params>
+    <query>
+      SELECT p.id, p.title, p.slug, p.short_description, p.header_image_url,
+             p.status, p.is_highlighted, p.participation_mode,
+             p.current_collaborator_count, p.max_collaborators,
+             GROUP_CONCAT(DISTINCT t.name) as tag_names,
+             GROUP_CONCAT(DISTINCT t.slug) as tag_slugs
+      FROM projects p
+      LEFT JOIN project_tags pt ON pt.project_id = p.id
+      LEFT JOIN tags t ON t.id = pt.tag_id
+      WHERE p.is_visible = true
+        [AND p.status = :status]
+        [AND t.slug = :tag]
+        [AND (p.title LIKE :search OR p.short_description LIKE :search)]
+      GROUP BY p.id
+      ORDER BY p.is_highlighted DESC, p.created_at DESC
+      LIMIT :limit OFFSET :offset
+    </query>
+    <responses>
+      <response status="200">{ "data": ProjectCard[], "meta": { page, limit, total } }</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="PUB-02" method="GET" path="/projects/:slug">
+    <description>Full project detail. Powers /projects/[slug] page. Public — excludes private collaborator data.</description>
+    <query>
+      SELECT p.*, GROUP_CONCAT(DISTINCT t.name ORDER BY t.name) as tag_names,
+             GROUP_CONCAT(DISTINCT pmd.day_of_week) as meeting_days,
+             (SELECT COUNT(*) FROM assignments a WHERE a.project_id=p.id AND a.status=activo) as active_member_count,
+             (SELECT GROUP_CONCAT(CONCAT(adm.first_name, ' ', adm.last_name))
+              FROM project_managers pm JOIN administrators adm ON adm.id=pm.admin_id
+              WHERE pm.project_id=p.id AND pm.is_primary=true) as lead_manager_name
+      FROM projects p
+      LEFT JOIN project_tags pt ON pt.project_id=p.id
+      LEFT JOIN tags t ON t.id=pt.tag_id
+      LEFT JOIN project_meeting_days pmd ON pmd.project_id=p.id
+      WHERE p.slug=:slug AND p.is_visible=true
+      GROUP BY p.id
+    </query>
+    <responses>
+      <response status="200">{ "data": ProjectDetail }</response>
+      <response status="404" code="ERR_NOT_FOUND"/>
+    </responses>
+  </endpoint>
+
+  <endpoint id="PUB-03" method="GET" path="/events">
+    <description>List visible events. Split into upcoming/past by caller or query param.</description>
+    <query-params>
+      <param name="upcoming" type="boolean" note="If true, filter event_date &gt;= NOW()"/>
+      <param name="tag"      type="string"  note="Tag slug filter"/>
+      <param name="type"     type="string"  values="taller|charla|convocatoria|hackathon|demo_day|visita|otro"/>
+      <param name="page"     type="integer" default="1"/>
+      <param name="limit"    type="integer" default="12"/>
+    </query-params>
+    <responses>
+      <response status="200">{ "data": EventCard[], "meta": { page, limit, total } }</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="PUB-04" method="GET" path="/events/:slug">
+    <description>Full event detail. Powers /events/[slug] page.</description>
+    <responses>
+      <response status="200">{ "data": EventDetail }</response>
+      <response status="404" code="ERR_NOT_FOUND"/>
+    </responses>
+  </endpoint>
+
+  <endpoint id="PUB-05" method="GET" path="/tags">
+    <description>All tags for filter dropdowns on projects/events pages.</description>
+    <responses>
+      <response status="200">{ "data": [ { id, name, slug, category } ] }</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="PUB-06" method="GET" path="/content/:section">
+    <description>CMS content for public page sections. Powers all site_content reads in SvelteKit load() functions.</description>
+    <path-params>
+      <param name="section"
+             values="home_hero|dlab_identity|value_propositions|participation_steps|contact_info|social_links|interest_form_config"/>
+    </path-params>
+    <query-logic>
+      home_hero         → SELECT * FROM home_hero WHERE is_active=true LIMIT 1
+      dlab_identity     → SELECT * FROM dlab_identity WHERE is_active=true LIMIT 1
+      value_propositions → SELECT * FROM value_propositions WHERE is_visible=true ORDER BY sort_order ASC
+      participation_steps → SELECT * FROM participation_steps WHERE is_visible=true ORDER BY step_number ASC
+      contact_info      → SELECT * FROM contact_info WHERE is_active=true LIMIT 1
+      social_links      → SELECT * FROM social_links WHERE is_visible=true ORDER BY sort_order ASC
+      interest_form_config → SELECT * FROM interest_form_config WHERE is_active=true LIMIT 1
+    </query-logic>
+    <responses>
+      <response status="200">{ "data": &lt;section-specific object or array&gt; }</response>
+      <response status="404" code="ERR_SECTION_NOT_FOUND">Invalid section name</response>
+    </responses>
+  </endpoint>
+
+</route-group>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §11  ADMIN — COLLABORATORS
+     Prefix: /api/admin/collaborators
+     Auth: verifyAdminToken
+     ═══════════════════════════════════════════════════════════════════════ -->
+<route-group prefix="/api/admin/collaborators" auth="verifyAdminToken">
+
+  <endpoint id="ADMC-01" method="GET" path="/">
+    <description>List collaborators with filters. Powers /admin/colaboradores page.</description>
+    <query-params>
+      <param name="status"  type="string" note="trajectory_status filter"/>
+      <param name="search"  type="string" note="first_name, last_name, personal_email LIKE"/>
+      <param name="major"   type="string" note="Exact major filter"/>
+      <param name="page"    type="integer" default="1"/>
+      <param name="limit"   type="integer" default="20"/>
+    </query-params>
+    <responses>
+      <response status="200">{ "data": CollaboratorListItem[], "meta": { page, limit, total } }</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="ADMC-02" method="GET" path="/:id">
+    <description>Full collaborator profile for admin review. Includes applications, assignments, status history from audit_log.</description>
+    <responses>
+      <response status="200">{ "data": CollaboratorAdminDetail }</response>
+      <response status="404" code="ERR_NOT_FOUND"/>
+    </responses>
+  </endpoint>
+
+  <endpoint id="ADMC-03" method="PATCH" path="/:id/status">
+    <description>
+      Change collaborator trajectory_status. Triggers emails on specific transitions.
+      Valid transitions (per entity model ENUM):
+        nuevo → en_revision → contactado → vinculado → inactivo
+        Any status → inactivo (rejection/deactivation)
+    </description>
+    <request-body>
+      <field name="new_status" type="string" required="true"
+             values="nuevo|en_revision|contactado|vinculado|inactivo"/>
+      <field name="reason"     type="string" required="false" max="500"
+             note="Included in rejection email body if new_status=inactivo"/>
+    </request-body>
+    <responses>
+      <response status="200">{ "data": { "collaborator_id": int, "new_status": string } }</response>
+      <response status="422" code="ERR_INVALID_STATUS_TRANSITION">Attempting an invalid forward/backward transition</response>
+      <response status="404" code="ERR_NOT_FOUND"/>
+    </responses>
+    <side-effects>
+      <effect>UPDATE collaborators SET trajectory_status=new_status, updated_at=NOW()</effect>
+      <effect>INSERT INTO audit_log: action=status_change</effect>
+      <effect>If new_status IN (contactado): email.sendCollaboratorApproved() — regenerate activation token if expired</effect>
+      <effect>If new_status = inactivo AND previous was nuevo/en_revision: email.sendCollaboratorRejected(reason)</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="ADMC-04" method="POST" path="/:id/notes">
+    <description>Add admin note to collaborator (stored in audit_log with action=update and description as note content).</description>
+    <request-body>
+      <field name="content" type="string" required="true" max="2000"/>
+    </request-body>
+    <responses>
+      <response status="201">{ "data": { "note_id": bigint, "content": string, "created_at": timestamp, "admin_name": string } }</response>
+      <response status="404" code="ERR_NOT_FOUND"/>
+    </responses>
+    <side-effects>
+      <effect>INSERT INTO audit_log: actor_type=administrator, actor_id=req.admin.id, action=update, entity_type=collaborators, entity_id=id, description=content</effect>
+    </side-effects>
+  </endpoint>
+
+</route-group>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §12  ADMIN — APPLICATIONS
+     Prefix: /api/admin/applications
+     Auth: verifyAdminToken
+     ═══════════════════════════════════════════════════════════════════════ -->
+<route-group prefix="/api/admin/applications" auth="verifyAdminToken">
+
+  <endpoint id="ADMA-01" method="GET" path="/">
+    <query-params>
+      <param name="status"     type="string" values="pendiente|en_revision|aprobada|rechazada|retirada"/>
+      <param name="project_id" type="integer"/>
+      <param name="collaborator_id" type="integer"/>
+      <param name="page"/>
+      <param name="limit"/>
+    </query-params>
+    <responses>
+      <response status="200">{ "data": ApplicationAdminItem[], "meta": pagination }</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="ADMA-02" method="PATCH" path="/:id/status">
+    <description>
+      Review application. If approved: atomic stored procedure creates assignment
+      and updates collaborator trajectory_status to vinculado.
+    </description>
+    <request-body>
+      <field name="status"      type="string"  required="true" values="en_revision|aprobada|rechazada"/>
+      <field name="admin_notes" type="string"  required="false" max="2000"/>
+    </request-body>
+    <responses>
+      <response status="200">{ "data": { "application_id": int, "new_status": string, "assignment_id"?: int } }</response>
+      <response status="422" code="ERR_APPLICATION_ALREADY_RESOLVED">status is already aprobada or rechazada</response>
+      <response status="404" code="ERR_NOT_FOUND"/>
+    </responses>
+    <side-effects>
+      <effect>UPDATE applications SET status, reviewed_at=NOW(), approver_admin_id=req.admin.id, admin_notes [, approved_at or rejected_at]</effect>
+      <effect>If aprobada: CALL sp_application_approve(application_id, admin_id) — atomic:
+        1. UPDATE applications.status = aprobada, approved_at = NOW()
+        2. INSERT INTO assignments (collaborator_id, project_id, application_id, assigned_by_admin_id, status=activo)
+        3. UPDATE projects SET current_collaborator_count = current_collaborator_count + 1
+        4. UPDATE collaborators SET trajectory_status = vinculado WHERE id = collaborator_id
+        All in a single transaction — rollback on any failure.
+      </effect>
+      <effect>INSERT INTO audit_log: action=approve or reject</effect>
+    </side-effects>
+  </endpoint>
+
+</route-group>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §13  ADMIN — ASSIGNMENTS
+     Prefix: /api/admin/assignments
+     Auth: verifyAdminToken
+     ═══════════════════════════════════════════════════════════════════════ -->
+<route-group prefix="/api/admin/assignments" auth="verifyAdminToken">
+
+  <endpoint id="ADMAS-01" method="GET" path="/">
+    <query-params>
+      <param name="project_id"       type="integer"/>
+      <param name="collaborator_id"  type="integer"/>
+      <param name="status"           type="string" values="activo|pausado|finalizado|removido"/>
+    </query-params>
+    <responses>
+      <response status="200">{ "data": AssignmentAdminItem[] }</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="ADMAS-02" method="POST" path="/">
+    <description>Manually assign collaborator to project (bypass application flow).</description>
+    <request-body>
+      <field name="collaborator_id" type="integer" required="true"/>
+      <field name="project_id"      type="integer" required="true"/>
+      <field name="role_in_project" type="string"  required="false" max="150"/>
+      <field name="assigned_at"     type="date"    required="false" note="Defaults to NOW()"/>
+    </request-body>
+    <responses>
+      <response status="201">{ "data": { "assignment_id": int } }</response>
+      <response status="409" code="ERR_ALREADY_ASSIGNED">Active assignment already exists for this collaborator+project pair</response>
+      <response status="404" code="ERR_NOT_FOUND">collaborator_id or project_id not found</response>
+    </responses>
+    <side-effects>
+      <effect>INSERT INTO assignments (assigned_by_admin_id=req.admin.id, application_id=NULL, status=activo)</effect>
+      <effect>UPDATE projects SET current_collaborator_count = current_collaborator_count + 1</effect>
+      <effect>UPDATE collaborators SET trajectory_status=vinculado IF not already vinculado</effect>
+      <effect>INSERT INTO audit_log: action=assign</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="ADMAS-03" method="PATCH" path="/:id/end">
+    <description>
+      End an assignment. Auto-demotes collaborator to inactivo if no remaining
+      active assignments exist for that collaborator.
+    </description>
+    <request-body>
+      <field name="ended_at"   type="date"   required="false" note="Defaults to NOW()"/>
+      <field name="end_reason" type="string" required="false" max="300"/>
+      <field name="new_status" type="string" required="false"
+             values="finalizado|removido|pausado" default="finalizado"/>
+    </request-body>
+    <responses>
+      <response status="200">{ "data": { "assignment_id": int, "ended_at": timestamp, "collaborator_new_trajectory_status": string } }</response>
+      <response status="404" code="ERR_NOT_FOUND"/>
+    </responses>
+    <side-effects>
+      <effect>UPDATE assignments SET status=new_status, ended_at, end_reason</effect>
+      <effect>UPDATE projects SET current_collaborator_count = MAX(0, current_collaborator_count - 1)</effect>
+      <effect>Check remaining active assignments: SELECT COUNT(*) FROM assignments WHERE collaborator_id=X AND status=activo</effect>
+      <effect>If count = 0: UPDATE collaborators SET trajectory_status=inactivo</effect>
+      <effect>INSERT INTO audit_log: action=unassign</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="ADMAS-04" method="PATCH" path="/:id">
+    <description>Update assignment metadata (role, pause/resume).</description>
+    <request-body>
+      <field name="role_in_project" type="string" required="false"/>
+      <field name="status"          type="string" required="false" values="activo|pausado"/>
+    </request-body>
+    <responses>
+      <response status="200">{ "data": AssignmentAdminItem }</response>
+    </responses>
+  </endpoint>
+
+</route-group>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §14  ADMIN — PROJECTS
+     Prefix: /api/admin/projects
+     Auth: verifyAdminToken
+     ═══════════════════════════════════════════════════════════════════════ -->
+<route-group prefix="/api/admin/projects" auth="verifyAdminToken">
+
+  <note>Image upload is separate — POST /api/media/upload (resource_type=project). Returns public_url to be saved in header_image_url field here.</note>
+
+  <endpoint id="ADMPR-01" method="GET" path="/">
+    <query-params>
+      <param name="status"     type="string"/>
+      <param name="is_visible" type="boolean"/>
+      <param name="search"     type="string"/>
+      <param name="page"/>
+      <param name="limit"/>
+    </query-params>
+    <responses>
+      <response status="200">{ "data": ProjectAdminItem[], "meta": pagination }</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="ADMPR-02" method="POST" path="/">
+    <description>Create project. header_image_url is a Supabase public URL returned by /api/media/upload.</description>
+    <request-body>
+      <field name="title"              type="string"    required="true"  max="255"/>
+      <field name="slug"               type="string"    required="false"
+             note="Auto-generated from title if omitted. Must be unique."/>
+      <field name="short_description"  type="string"    required="true"  max="500"/>
+      <field name="full_description"   type="text"      required="true"/>
+      <field name="target_audience"    type="string"    required="false" max="300"/>
+      <field name="required_skills"    type="string"    required="false"/>
+      <field name="participation_mode" type="string"    required="false" max="200"/>
+      <field name="header_image_url"   type="url"       required="false"
+             note="Public URL from Supabase — returned by POST /api/media/upload"/>
+      <field name="video_url"          type="url"       required="false"/>
+      <field name="status"             type="string"    required="true"
+             values="activo|en_pausa|completado|archivado|proximo"/>
+      <field name="is_highlighted"     type="boolean"   required="false" default="false"/>
+      <field name="is_visible"         type="boolean"   required="true"/>
+      <field name="max_collaborators"  type="integer"   required="false"/>
+      <field name="tag_ids"            type="integer[]" required="false"/>
+      <field name="manager_admin_ids"  type="integer[]" required="false"
+             note="Admins to insert into project_managers. First item = is_primary."/>
+      <field name="meeting_days"       type="array"     required="false">
+        <item>
+          <field name="day_of_week" type="enum" values="lunes|martes|miercoles|jueves|viernes|sabado|domingo"/>
+          <field name="notes"       type="string" required="false"/>
+        </item>
+      </field>
+    </request-body>
+    <responses>
+      <response status="201">{ "data": ProjectAdminDetail }</response>
+      <response status="409" code="ERR_SLUG_CONFLICT"/>
+      <response status="400" code="ERR_VALIDATION"/>
+    </responses>
+    <side-effects>
+      <effect>INSERT INTO projects (created_by_admin_id=req.admin.id)</effect>
+      <effect>INSERT INTO project_tags for each tag_id</effect>
+      <effect>INSERT INTO project_managers for each manager_admin_id (first = is_primary=true)</effect>
+      <effect>INSERT INTO project_meeting_days</effect>
+      <effect>INSERT INTO audit_log: action=create</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="ADMPR-03" method="GET" path="/:id">
+    <responses>
+      <response status="200">{ "data": ProjectAdminDetail — includes hidden fields, application stats, manager list }</response>
+      <response status="404" code="ERR_NOT_FOUND"/>
+    </responses>
+  </endpoint>
+
+  <endpoint id="ADMPR-04" method="PUT" path="/:id">
+    <description>Full update. Same body schema as POST. Tags and meeting_days are fully replaced.</description>
+    <responses>
+      <response status="200">{ "data": ProjectAdminDetail }</response>
+      <response status="409" code="ERR_SLUG_CONFLICT"/>
+      <response status="404" code="ERR_NOT_FOUND"/>
+    </responses>
+    <side-effects>
+      <effect>UPDATE projects</effect>
+      <effect>DELETE + re-INSERT project_tags, project_meeting_days, project_managers</effect>
+      <effect>INSERT INTO audit_log: action=update</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="ADMPR-05" method="PATCH" path="/:id/visibility">
+    <request-body><field name="is_visible" type="boolean" required="true"/></request-body>
+    <responses>
+      <response status="200">{ "data": { "project_id": int, "is_visible": boolean } }</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="ADMPR-06" method="DELETE" path="/:id">
+    <guard>Cannot delete if active assignments exist → 422 ERR_PROJECT_HAS_ACTIVE_ASSIGNMENTS</guard>
+    <responses>
+      <response status="204">No content</response>
+      <response status="422" code="ERR_PROJECT_HAS_ACTIVE_ASSIGNMENTS"/>
+    </responses>
+    <side-effects>
+      <effect>INSERT INTO audit_log: action=delete</effect>
+      <effect>Cascade: project_tags, project_meeting_days, project_managers deleted via FK CASCADE or explicit DELETE</effect>
+    </side-effects>
+  </endpoint>
+
+</route-group>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §15  ADMIN — EVENTS
+     Prefix: /api/admin/events
+     Auth: verifyAdminToken
+     ═══════════════════════════════════════════════════════════════════════ -->
+<route-group prefix="/api/admin/events" auth="verifyAdminToken">
+
+  <note>
+    Image upload for events → POST /api/media/upload (resource_type=event)
+    Bucket: SUPABASE_BUCKET_EVENTS = pmi-frontend-events-images
+    Events support two image fields: header_image_url and banner_image_url.
+  </note>
+
+  <endpoint id="ADME-01" method="GET" path="/">
+    <query-params>
+      <param name="status"   type="string" values="proximo|abierto|en_curso|finalizado|cancelado"/>
+      <param name="type"     type="string" values="taller|charla|convocatoria|hackathon|demo_day|visita|otro"/>
+      <param name="upcoming" type="boolean" note="event_date &gt;= NOW()"/>
+      <param name="page"/>
+      <param name="limit"/>
+    </query-params>
+    <responses>
+      <response status="200">{ "data": EventAdminItem[], "meta": pagination }</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="ADME-02" method="POST" path="/">
+    <request-body>
+      <field name="title"               type="string"   required="true"  max="255"/>
+      <field name="slug"                type="string"   required="false" note="Auto-generated if omitted"/>
+      <field name="type"                type="string"   required="true"
+             values="taller|charla|convocatoria|hackathon|demo_day|visita|otro"/>
+      <field name="short_description"   type="string"   required="true"  max="500"/>
+      <field name="full_description"    type="text"     required="true"/>
+      <field name="target_audience"     type="string"   required="false" max="300"/>
+      <field name="location"            type="string"   required="false" max="300"/>
+      <field name="event_date"          type="datetime" required="false"/>
+      <field name="event_end_date"      type="datetime" required="false"/>
+      <field name="registration_deadline" type="datetime" required="false"/>
+      <field name="capacity"            type="integer"  required="false"/>
+      <field name="header_image_url"    type="url"      required="false"
+             note="Supabase public URL from POST /api/media/upload (resource_type=event, bucket=pmi-frontend-events-images)"/>
+      <field name="banner_image_url"    type="url"      required="false"
+             note="Secondary image — same bucket as header_image_url"/>
+      <field name="registration_url"    type="url"      required="false"/>
+      <field name="status"              type="string"   required="true"
+             values="proximo|abierto|en_curso|finalizado|cancelado"/>
+      <field name="is_highlighted"      type="boolean"  required="false" default="false"/>
+      <field name="is_visible"          type="boolean"  required="true"/>
+      <field name="tag_ids"             type="integer[]" required="false"/>
+      <field name="manager_admin_ids"   type="integer[]" required="false"/>
+    </request-body>
+    <responses>
+      <response status="201">{ "data": EventAdminDetail }</response>
+      <response status="409" code="ERR_SLUG_CONFLICT"/>
+    </responses>
+    <side-effects>
+      <effect>INSERT INTO events (created_by_admin_id=req.admin.id)</effect>
+      <effect>INSERT INTO event_tags, event_managers</effect>
+      <effect>INSERT INTO audit_log: action=create</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="ADME-03" method="GET"    path="/:id">
+    <responses><response status="200">{ "data": EventAdminDetail }</response></responses>
+  </endpoint>
+  <endpoint id="ADME-04" method="PUT"    path="/:id">
+    <description>Full update — same body as POST. Tags and managers fully replaced.</description>
+    <responses><response status="200">{ "data": EventAdminDetail }</response></responses>
+    <side-effects>
+      <effect>UPDATE events; DELETE + re-INSERT event_tags, event_managers</effect>
+      <effect>INSERT INTO audit_log: action=update</effect>
+    </side-effects>
+  </endpoint>
+  <endpoint id="ADME-05" method="PATCH"  path="/:id/visibility">
+    <request-body><field name="is_visible" type="boolean" required="true"/></request-body>
+    <responses><response status="200">{ "data": { "event_id": int, "is_visible": boolean } }</response></responses>
+  </endpoint>
+  <endpoint id="ADME-06" method="DELETE" path="/:id">
+    <responses><response status="204">No content</response></responses>
+    <side-effects><effect>INSERT INTO audit_log: action=delete</effect></side-effects>
+  </endpoint>
+
+</route-group>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §16  ADMIN — TAGS
+     Prefix: /api/admin/tags
+     Auth: verifyAdminToken
+     ═══════════════════════════════════════════════════════════════════════ -->
+<route-group prefix="/api/admin/tags" auth="verifyAdminToken">
+
+  <endpoint id="ADMT-01" method="GET" path="/">
+    <description>All tags with computed usage counts.</description>
+    <query>
+      SELECT t.*,
+        (SELECT COUNT(*) FROM collaborator_tags WHERE tag_id=t.id) as collaborator_count,
+        (SELECT COUNT(*) FROM project_tags WHERE tag_id=t.id) as project_count,
+        (SELECT COUNT(*) FROM event_tags WHERE tag_id=t.id) as event_count
+      FROM tags t ORDER BY t.category, t.name
+    </query>
+    <responses>
+      <response status="200">{ "data": TagWithUsage[] }</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="ADMT-02" method="POST" path="/">
+    <request-body>
+      <field name="name"     type="string" required="true" max="100"/>
+      <field name="slug"     type="string" required="false" note="Auto-generated from name if omitted"/>
+      <field name="category" type="string" required="false"
+             values="materials|machinery|design|software|research|general" default="general"/>
+    </request-body>
+    <responses>
+      <response status="201">{ "data": Tag }</response>
+      <response status="409" code="ERR_TAG_SLUG_EXISTS"/>
+    </responses>
+    <side-effects>
+      <effect>INSERT INTO tags (is_system=false, created_by_admin_id=req.admin.id)</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="ADMT-03" method="DELETE" path="/:id">
+    <guard>is_system=true → 422 ERR_SYSTEM_TAG (cannot delete seeded system tags)</guard>
+    <guard>collaborator_count + project_count + event_count &gt; 0 → 422 ERR_TAG_IN_USE</guard>
+    <responses>
+      <response status="204">No content</response>
+      <response status="422" code="ERR_SYSTEM_TAG|ERR_TAG_IN_USE"/>
+    </responses>
+  </endpoint>
+
+</route-group>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §17  MEDIA UPLOAD — SUPABASE STORAGE
+     Prefix: /api/media
+     Auth: verifyAdminToken
+     Middleware: upload (multer memoryStorage — no disk writes)
+     ═══════════════════════════════════════════════════════════════════════ -->
+<route-group prefix="/api/media" auth="verifyAdminToken">
+
+  <endpoint id="MEDIA-01" method="POST" path="/upload" content-type="multipart/form-data">
+    <description>
+      Upload image to Supabase Storage via IStorageProvider interface.
+      resource_type determines bucket:
+        project → SUPABASE_BUCKET_PROJECTS (pmi-frontend-proj-images)
+        event   → SUPABASE_BUCKET_EVENTS   (pmi-frontend-events-images)
+
+      No files are ever written to the Express server filesystem.
+      multer memoryStorage provides req.file.buffer which is passed directly to
+      IStorageProvider.upload(bucket, path, buffer, mimetype).
+
+      The returned public_url should be saved by the caller in the project or event
+      header_image_url / banner_image_url field via the respective admin endpoint.
+
+      media_assets table is updated to track file metadata.
+    </description>
+    <request-body multipart="true">
+      <field name="image"         type="file"    required="true"
+             note="Image file — validated by multer fileFilter against UPLOAD_ALLOWED_TYPES"/>
+      <field name="resource_type" type="string"  required="true"  values="project|event"/>
+      <field name="resource_id"   type="integer" required="false"
+             note="If provided and resource has existing image path in media_assets, old file is deleted from Supabase before uploading new one."/>
+      <field name="alt_text"      type="string"  required="false" max="300"/>
+    </request-body>
+    <processing>
+      1. multer validates file size (&lt;= UPLOAD_MAX_SIZE_MB MB) and MIME type.
+      2. Resolve bucket: resource_type=project → SUPABASE_BUCKET_PROJECTS, event → SUPABASE_BUCKET_EVENTS.
+      3. Build object path: {resource_type}/{uuidv4()}-{sanitize(originalname)}.{ext}
+      4. If resource_id provided: lookup existing media_assets record, call IStorageProvider.delete(bucket, old_path).
+      5. Call IStorageProvider.upload(bucket, path, req.file.buffer, req.file.mimetype).
+      6. INSERT INTO media_assets (original_filename, stored_filename=path, public_url, storage_type=cloud, mime_type, file_size_bytes, entity_type=resource_type, entity_id=resource_id, alt_text, uploaded_by_admin_id=req.admin.id).
+      7. Return { public_url, path, media_asset_id }.
+    </processing>
+    <responses>
+      <response status="201">
+        { "data": { "public_url": "https://xxxx.supabase.co/storage/v1/object/public/pmi-frontend-proj-images/projects/uuid-filename.webp",
+                    "path": "projects/uuid-filename.webp",
+                    "media_asset_id": int } }
+      </response>
+      <response status="400" code="ERR_FILE_TOO_LARGE">Exceeds UPLOAD_MAX_SIZE_MB</response>
+      <response status="400" code="ERR_INVALID_FILE_TYPE">MIME not in UPLOAD_ALLOWED_TYPES</response>
+      <response status="400" code="ERR_MISSING_RESOURCE_TYPE">resource_type not provided or invalid</response>
+      <response status="400" code="ERR_NO_FILE">No file attached to request</response>
+      <response status="502" code="ERR_STORAGE_UPLOAD_FAILED">Supabase storage returned an error</response>
+    </responses>
+  </endpoint>
+
+  <endpoint id="MEDIA-02" method="DELETE" path="/">
+    <description>Delete a stored image from Supabase and remove media_assets record.</description>
+    <request-body>
+      <field name="path"          type="string" required="true"
+             note="Object path as stored in media_assets.stored_filename, e.g. projects/uuid-filename.webp"/>
+      <field name="resource_type" type="string" required="true" values="project|event"/>
+    </request-body>
+    <responses>
+      <response status="204">No content</response>
+      <response status="400" code="ERR_VALIDATION"/>
+      <response status="404" code="ERR_NOT_FOUND">media_assets record not found for given path</response>
+      <response status="502" code="ERR_STORAGE_DELETE_FAILED"/>
+    </responses>
+    <side-effects>
+      <effect>IStorageProvider.delete(bucket, path)</effect>
+      <effect>DELETE FROM media_assets WHERE stored_filename=path</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="MEDIA-03" method="GET" path="/">
+    <description>List all uploaded media assets, optionally filtered by entity.</description>
+    <query-params>
+      <param name="entity_type" type="string" values="project|event"/>
+      <param name="entity_id"   type="integer"/>
+      <param name="page"/>
+      <param name="limit"/>
+    </query-params>
+    <responses>
+      <response status="200">{ "data": MediaAsset[], "meta": pagination }</response>
+    </responses>
+  </endpoint>
+
+</route-group>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §18  ADMIN — CONTENT CMS
+     Prefix: /api/admin/content
+     Auth: verifyAdminToken
+     ═══════════════════════════════════════════════════════════════════════ -->
+<route-group prefix="/api/admin/content" auth="verifyAdminToken">
+
+  <endpoint id="CMS-01" method="GET" path="/:section">
+    <description>Get current content for a CMS section. Admin version may include inactive records.</description>
+    <path-params>
+      <param name="section"
+             values="home_hero|dlab_identity|value_propositions|participation_steps|contact_info|social_links|interest_form_config"/>
+    </path-params>
+    <responses>
+      <response status="200">{ "data": &lt;section-specific object or array&gt; }</response>
+      <response status="404" code="ERR_SECTION_NOT_FOUND"/>
+    </responses>
+  </endpoint>
+
+  <endpoint id="CMS-02" method="PUT" path="/:section">
+    <description>
+      Replace full section content. Body schema is section-specific (validated per section).
+      Sets updated_by_admin_id=req.admin.id, updated_at=NOW().
+    </description>
+    <section-body-schemas>
+      <schema section="home_hero"
+              fields="headline(str,required), subheadline(str), primary_cta_label(str,required), primary_cta_url(str,required), secondary_cta_label(str), secondary_cta_url(str), background_image_url(url), is_active(bool)"/>
+      <schema section="dlab_identity"
+              fields="title(str,required), body(text,required), image_url(url), video_url(url), is_active(bool)"/>
+      <schema section="contact_info"
+              fields="contact_email(email), contact_phone(str), physical_location(str), maps_url(url), cta_headline(str), cta_description(text), is_active(bool)"/>
+      <schema section="interest_form_config"
+              fields="page_headline(str,required), page_description(text), success_message(text,required), success_email_subject(str), success_email_body(text), is_active(bool)"/>
+    </section-body-schemas>
+    <responses>
+      <response status="200">{ "data": { updated section object } }</response>
+      <response status="400" code="ERR_VALIDATION"/>
+    </responses>
+    <side-effects>
+      <effect>INSERT INTO audit_log: action=update, entity_type=section name</effect>
+    </side-effects>
+  </endpoint>
+
+  <endpoint id="CMS-03" method="POST" path="/value_propositions">
+    <description>Add a new value proposition card.</description>
+    <request-body>
+      <field name="title"           type="string"  required="true"  max="200"/>
+      <field name="description"     type="text"    required="true"/>
+      <field name="icon_identifier" type="string"  required="false" max="100"/>
+      <field name="image_url"       type="url"     required="false"/>
+      <field name="target_audience" type="string"  required="false" max="200"/>
+      <field name="sort_order"      type="integer" required="false" default="0"/>
+      <field name="is_visible"      type="boolean" required="false" default="true"/>
+    </request-body>
+    <responses><response status="201">{ "data": ValueProposition }</response></responses>
+  </endpoint>
+
+  <endpoint id="CMS-04" method="PUT" path="/value_propositions/:id">
+    <description>Update a value proposition card.</description>
+    <responses><response status="200">{ "data": ValueProposition }</response></responses>
+  </endpoint>
+
+  <endpoint id="CMS-05" method="DELETE" path="/value_propositions/:id">
+    <responses><response status="204">No content</response></responses>
+  </endpoint>
+
+  <endpoint id="CMS-06" method="PATCH" path="/value_propositions/reorder">
+    <request-body><field name="ordered_ids" type="integer[]" required="true"
+                        note="Full ordered list of value_proposition IDs. Updates sort_order for each."/></request-body>
+    <responses><response status="200">{ "data": { "reordered": true } }</response></responses>
+  </endpoint>
+
+  <endpoint id="CMS-07" method="POST" path="/participation_steps">
+    <request-body>
+      <field name="step_number"     type="integer" required="true"/>
+      <field name="title"           type="string"  required="true"  max="200"/>
+      <field name="description"     type="text"    required="true"/>
+      <field name="icon_identifier" type="string"  required="false"/>
+      <field name="is_visible"      type="boolean" required="false" default="true"/>
+    </request-body>
+    <responses><response status="201">{ "data": ParticipationStep }</response></responses>
+  </endpoint>
+
+  <endpoint id="CMS-08" method="PUT"    path="/participation_steps/:id">
+    <responses><response status="200">{ "data": ParticipationStep }</response></responses>
+  </endpoint>
+  <endpoint id="CMS-09" method="DELETE" path="/participation_steps/:id">
+    <responses><response status="204">No content</response></responses>
+  </endpoint>
+  <endpoint id="CMS-10" method="PATCH"  path="/participation_steps/reorder">
+    <request-body><field name="ordered_ids" type="integer[]" required="true"/></request-body>
+    <responses><response status="200">{ "data": { "reordered": true } }</response></responses>
+  </endpoint>
+
+  <endpoint id="CMS-11" method="POST" path="/social_links">
+    <request-body>
+      <field name="platform"        type="string"  required="true"  max="100"/>
+      <field name="url"             type="url"     required="true"/>
+      <field name="icon_identifier" type="string"  required="false" max="100"/>
+      <field name="sort_order"      type="integer" required="false" default="0"/>
+      <field name="is_visible"      type="boolean" required="false" default="true"/>
+    </request-body>
+    <responses><response status="201">{ "data": SocialLink }</response></responses>
+  </endpoint>
+
+  <endpoint id="CMS-12" method="PUT"    path="/social_links/:id">
+    <responses><response status="200">{ "data": SocialLink }</response></responses>
+  </endpoint>
+  <endpoint id="CMS-13" method="DELETE" path="/social_links/:id">
+    <responses><response status="204">No content</response></responses>
+  </endpoint>
+
+</route-group>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §19  NPM DEPENDENCIES
+     ═══════════════════════════════════════════════════════════════════════ -->
+<dependencies>
+  <!-- Core framework -->
+  <dep name="express"               version="^5"   category="framework"/>
+
+  <!-- Database -->
+  <dep name="mysql2"                version="^3"   category="database"
+       note="Promise-based pool. Raw SQL + stored procedure calls via pool.execute()"/>
+
+  <!-- Authentication & Encryption -->
+  <dep name="jsonwebtoken"          version="^9"   category="auth"/>
+  <dep name="bcrypt"                version="^5"   category="auth"/>
+  <dep name="crypto"                version="built-in" category="auth"
+       note="Node.js built-in — used for HMAC token generation (no install needed)"/>
+
+  <!-- Configuration -->
+  <dep name="dotenv"                version="^16"  category="config"/>
+  <dep name="zod"                   version="^3"   category="validation"
+       note="Schema validation for request bodies and env vars"/>
+
+  <!-- File Upload -->
+  <dep name="multer"                version="^1"   category="upload"
+       note="memoryStorage ONLY — no disk writes"/>
+
+  <!-- Storage — Supabase -->
+  <dep name="@supabase/supabase-js" version="^2"   category="storage"
+       note="MVP IStorageProvider implementation"/>
+
+  <!-- Email -->
+  <dep name="resend"                version="^3"   category="email"
+       note="Official Resend SDK for Node.js"/>
+
+  <!-- Security & Middleware -->
+  <dep name="cors"                  version="^2"   category="middleware"/>
+  <dep name="helmet"                version="^7"   category="middleware"/>
+  <dep name="morgan"                version="^1"   category="middleware"/>
+  <dep name="express-rate-limit"    version="^7"   category="middleware"/>
+
+  <!-- Utilities -->
+  <dep name="uuid"                  version="^9"   category="utils"
+       note="uuidv4() for storage object path generation"/>
+  <dep name="slugify"               version="^1"   category="utils"
+       note="Auto-generate slugs from project/event titles"/>
+
+  <!-- Dev Dependencies -->
+  <dep name="nodemon"               version="^3"   category="dev"/>
+  <dep name="jest"                  version="^29"  category="dev"/>
+  <dep name="supertest"             version="^6"   category="dev"/>
+
+  <!-- Future (not installed in MVP) -->
+  <dep name="@azure/storage-blob"   version="^12"  category="storage-future"
+       note="Install when STORAGE_PROVIDER=azure. Remove stub from AzureStorageProvider.js"/>
+</dependencies>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §20  ERROR CODE REGISTRY
+     ═══════════════════════════════════════════════════════════════════════ -->
+<error-registry>
+  <!-- Auth errors -->
+  <error code="ERR_TOKEN_MISSING"              http="401" description="No Authorization header present"/>
+  <error code="ERR_TOKEN_INVALID"              http="401" description="JWT verification failed or HMAC mismatch"/>
+  <error code="ERR_TOKEN_EXPIRED"              http="401" description="Token past expiry"/>
+  <error code="ERR_TOKEN_REVOKED"              http="401" description="Token is_revoked=true in DB"/>
+  <error code="ERR_TOKEN_REUSE"                http="401" description="Refresh token reuse detected — all sessions revoked"/>
+  <error code="ERR_INVALID_CREDENTIALS"        http="401" description="Email/password mismatch — never specify which"/>
+  <error code="ERR_ACCOUNT_NOT_ACTIVE"         http="403" description="is_active=false"/>
+  <error code="ERR_NOT_ADMIN"                  http="403" description="Email exists but not an administrator"/>
+  <error code="ERR_FORBIDDEN"                  http="403" description="Valid token but insufficient role"/>
+  <error code="ERR_ALREADY_ACTIVATED"          http="409" description="Account already active — duplicate activation attempt"/>
+
+  <!-- Validation / Input -->
+  <error code="ERR_VALIDATION"                 http="400" description="Schema validation failure"/>
+  <error code="ERR_NO_FILE"                    http="400" description="No file attached to upload request"/>
+  <error code="ERR_FILE_TOO_LARGE"             http="400" description="File exceeds UPLOAD_MAX_SIZE_MB"/>
+  <error code="ERR_INVALID_FILE_TYPE"          http="400" description="MIME type not in UPLOAD_ALLOWED_TYPES"/>
+  <error code="ERR_MISSING_RESOURCE_TYPE"      http="400" description="resource_type not provided to /api/media/upload"/>
+
+  <!-- Resource conflicts -->
+  <error code="ERR_EMAIL_ALREADY_EXISTS"       http="409" description="personal_email already registered"/>
+  <error code="ERR_SLUG_CONFLICT"              http="409" description="project or event slug already exists"/>
+  <error code="ERR_DUPLICATE_APPLICATION"      http="409" description="Collaborator already applied to this project"/>
+  <error code="ERR_ALREADY_ASSIGNED"           http="409" description="Active assignment already exists for collaborator+project"/>
+  <error code="ERR_TAG_SLUG_EXISTS"            http="409" description="Tag slug already exists"/>
+
+  <!-- Business rules -->
+  <error code="ERR_NOT_FOUND"                  http="404" description="Resource not found"/>
+  <error code="ERR_NOT_ELIGIBLE"               http="422" description="Collaborator trajectory_status does not allow applying"/>
+  <error code="ERR_PROJECT_NOT_ACCEPTING"      http="422" description="Project status is not activo"/>
+  <error code="ERR_CANNOT_WITHDRAW"            http="422" description="Application status is not pendiente"/>
+  <error code="ERR_APPLICATION_ALREADY_RESOLVED" http="422" description="Application already aprobada or rechazada"/>
+  <error code="ERR_INVALID_STATUS_TRANSITION"  http="422" description="Requested trajectory_status transition is not allowed"/>
+  <error code="ERR_PROJECT_HAS_ACTIVE_ASSIGNMENTS" http="422" description="Cannot delete project with active assignments"/>
+  <error code="ERR_SYSTEM_TAG"                 http="422" description="Cannot delete a system-seeded tag"/>
+  <error code="ERR_TAG_IN_USE"                 http="422" description="Cannot delete tag that is referenced by collaborators, projects, or events"/>
+  <error code="ERR_SECTION_NOT_FOUND"          http="404" description="Invalid CMS section name in /api/public/content/:section"/>
+
+  <!-- Storage -->
+  <error code="ERR_STORAGE_UPLOAD_FAILED"      http="502" description="Supabase returned an error on upload"/>
+  <error code="ERR_STORAGE_DELETE_FAILED"      http="502" description="Supabase returned an error on delete"/>
+  <error code="ERR_STORAGE_NOT_IMPLEMENTED"    http="501" description="AzureStorageProvider stub called"/>
+
+  <!-- Email -->
+  <error code="ERR_EMAIL_SEND_FAILED"          http="502" description="Resend API returned an error"/>
+
+  <!-- System -->
+  <error code="ERR_RATE_LIMITED"               http="429" description="Rate limit exceeded on auth route"/>
+  <error code="ERR_INTERNAL"                   http="500" description="Unhandled exception — details hidden in production"/>
+</error-registry>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §21  EMAIL TRIGGER MAP (SUMMARY)
+     ═══════════════════════════════════════════════════════════════════════ -->
+<email-trigger-map>
+  <trigger endpoint="POST /api/auth/register"
+           template="sendActivationEmail"
+           recipient="new collaborator"
+           blocking="false"/>
+  <trigger endpoint="POST /api/auth/register"
+           template="sendAdminNewRegistration"
+           recipient="all active administrators"
+           blocking="false"/>
+  <trigger endpoint="PATCH /api/admin/collaborators/:id/status → contactado"
+           template="sendCollaboratorApproved"
+           recipient="collaborator"
+           blocking="false"/>
+  <trigger endpoint="PATCH /api/admin/collaborators/:id/status → inactivo (from pending review)"
+           template="sendCollaboratorRejected"
+           recipient="collaborator"
+           blocking="false"/>
+  <trigger endpoint="POST /api/auth/forgot-password (email found)"
+           template="sendPasswordReset"
+           recipient="collaborator"
+           blocking="false"/>
+</email-trigger-map>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     §22  STORED PROCEDURE SUMMARY
+     ═══════════════════════════════════════════════════════════════════════ -->
+<stored-procedures>
+
+  <procedure name="sp_application_approve">
+    <trigger>PATCH /api/admin/applications/:id/status → aprobada</trigger>
+    <params>IN p_application_id INT, IN p_admin_id INT</params>
+    <body>
+      START TRANSACTION;
+        UPDATE applications SET status=aprobada, approved_at=NOW(), approver_admin_id=p_admin_id WHERE id=p_application_id;
+        SET @collab_id = (SELECT collaborator_id FROM applications WHERE id=p_application_id);
+        SET @proj_id   = (SELECT project_id FROM applications WHERE id=p_application_id);
+        INSERT INTO assignments (collaborator_id, project_id, application_id, assigned_by_admin_id, status, assigned_at)
+          VALUES (@collab_id, @proj_id, p_application_id, p_admin_id, activo, NOW());
+        UPDATE projects SET current_collaborator_count = current_collaborator_count + 1 WHERE id=@proj_id;
+        UPDATE collaborators SET trajectory_status=vinculado, updated_at=NOW() WHERE id=@collab_id;
+      COMMIT;
+    </body>
+    <rollback>On any error: ROLLBACK; re-throw to Express errorHandler</rollback>
+  </procedure>
+
+  <procedure name="sp_register_collaborator">
+    <trigger>POST /api/auth/register</trigger>
+    <params>All collaborator fields as IN params</params>
+    <body>
+      START TRANSACTION;
+        INSERT INTO collaborators (...) VALUES (...);
+        SET @new_id = LAST_INSERT_ID();
+        -- tag insertions handled by application layer (not in SP for flexibility)
+      COMMIT;
+      SELECT @new_id as id;
+    </body>
+  </procedure>
+
+</stored-procedures>
+
+</backend-spec>
