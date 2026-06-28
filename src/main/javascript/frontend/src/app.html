@@ -4,10 +4,29 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script>
-      (function() {
-        const theme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-        document.documentElement.setAttribute('data-theme', theme);
-        if (theme === 'dark') document.documentElement.classList.add('dark');
+      (function () {
+        const storageKey = 'dlab-theme-preference';
+        const defaultPreference = 'system';
+
+        let storedPreference = null;
+
+        try {
+          storedPreference = localStorage.getItem(storageKey);
+        } catch (error) {
+          storedPreference = null;
+        }
+
+        const preference = storedPreference === 'light' || storedPreference === 'dark' || storedPreference === 'system'
+          ? storedPreference
+          : defaultPreference;
+        const dark = preference === 'dark' || (preference === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        const currentTheme = dark ? 'dark' : 'light';
+
+        const root = document.documentElement;
+        root.style.colorScheme = currentTheme;
+        root.classList.toggle('dark', dark);
+        root.classList.toggle('light', !dark);
+        root.setAttribute('data-theme', currentTheme);
       })();
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />

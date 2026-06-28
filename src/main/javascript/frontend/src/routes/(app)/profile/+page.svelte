@@ -5,6 +5,7 @@
   import Button from '$lib/components/ui/Button.svelte';
   import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
   import FormField from '$lib/components/ui/FormField.svelte';
+  import RichTextField from '$lib/components/ui/RichTextField.svelte';
   import AvailabilityPicker from '$lib/components/ui/AvailabilityPicker.svelte';
   import CollaboratorProfileView from '$lib/components/profile/CollaboratorProfileView.svelte';
   import { TelInput } from 'svelte-tel-input';
@@ -179,9 +180,9 @@
 
 
   function addPendingTag() {
-    const normalized = newTagName.trim().toLowerCase();
-    if (!pendingNewTags.includes(normalized)) {
-      pendingNewTags = [...pendingNewTags, normalized];
+    const trimmed = newTagName.trim();
+    if (!pendingNewTags.includes(trimmed)) {
+      pendingNewTags = [...pendingNewTags, trimmed];
       newTagName = '';
       tagError = '';
       isCreatingTag = false;
@@ -195,7 +196,6 @@
   function validateTagInput(value: string): string {
     const normalized = value.trim();
     if (!normalized) return 'Nombre requerido';
-    if (/\s/.test(normalized)) return 'Una sola palabra (usa - _ o . como separadores)';
     if (normalized.length < 2 || normalized.length > 50) return 'Entre 2 y 50 caracteres';
     return '';
   }
@@ -286,8 +286,8 @@
             {/each}
           </FormField>
           <div class="grid grid-cols-2 gap-4">
-            <FormField name="currentUniversityYear" type="number" label="Semestre actual" min={1} max={6} value={String(c.currentUniversityYear)} />
-            <FormField name="expectedGraduationYear" type="number" label="Año graduación" min={2024} max={2035} value={String(c.expectedGraduationYear)} />
+            <FormField name="currentUniversityYear" type="number" label="Semestre actual" min={1} max={12} value={String(c.currentUniversityYear)} />
+            <FormField name="expectedGraduationYear" type="number" label="Año graduación" min={2026} value={String(c.expectedGraduationYear)} />
           </div>
         </div>
       </div>
@@ -323,7 +323,7 @@
               {#if tagError}<p class="text-xs text-red-500">{tagError}</p>{/if}
               {#if newTagName.trim()}
                 <button type="button" onclick={addPendingTag} class="text-xs px-3 py-1.5 rounded-lg border transition-colors" style="border-color: var(--accent); color: var(--accent);">
-                  Agregar: {newTagName.trim().toLowerCase()}
+                  Agregar: {newTagName.trim()}
                 </button>
               {/if}
             </div>
@@ -361,11 +361,11 @@
       <!-- Motivación | Experiencia previa -->
       <div class="md:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-5">
         <div class="bg-surface rounded-xl border border-[--border] p-6">
-          <FormField name="motivationDescription" type="textarea" label="Motivación" value={c.motivationDescription} rows={4} />
+          <RichTextField name="motivationDescription" label="Motivación" value={c.motivationDescription} minHeightClass="min-h-[120px]" />
         </div>
 
         <div class="bg-surface rounded-xl border border-[--border] p-6">
-          <FormField name="experienceDescription" type="textarea" label="Experiencia previa" value={c.experienceDescription} rows={4} />
+          <RichTextField name="experienceDescription" label="Experiencia previa" value={c.experienceDescription} minHeightClass="min-h-[120px]" />
         </div>
       </div>
 

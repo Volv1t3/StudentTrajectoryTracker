@@ -5,6 +5,7 @@
   import Modal from '$lib/components/ui/Modal.svelte';
   import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import RichTextField from '$lib/components/ui/RichTextField.svelte';
   import type { AssignmentRow, AssignmentStatus, AssignmentSummary } from '$lib/types';
 
   type ProjectTag = {
@@ -369,13 +370,14 @@
           <label for="edit_end_reason" class="block text-sm font-semibold text-[--text-primary] mb-1">
             {requiresEndReason ? 'Motivo de cierre o remoción' : 'Motivo de pausa'}
           </label>
-          <textarea
-            id="edit_end_reason"
-            bind:value={editEndReason}
-            rows={4}
+          <RichTextField
+            name="end_reason"
+            label=""
+            value={editEndReason}
             placeholder={requiresEndReason ? 'Obligatorio para finalizar o remover.' : 'Opcional'}
-            class="w-full rounded-lg border border-[--border] bg-[--bg-secondary] px-3 py-2.5 text-sm resize-none"
-          ></textarea>
+            minHeightClass="min-h-[100px]"
+            onchange={(html) => { editEndReason = html; }}
+          />
         </div>
       {/if}
 

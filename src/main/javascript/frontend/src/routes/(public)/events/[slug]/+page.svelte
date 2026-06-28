@@ -153,6 +153,70 @@
   const videoEmbedUrl = $derived(getVideoEmbedUrl(data.event.video_url));
 </script>
 
+<style>
+  :global(.event-description ul) {
+    list-style-type: disc;
+    padding-left: 1.5rem;
+    margin: 0.75rem 0;
+  }
+  :global(.event-description ol) {
+    list-style-type: decimal;
+    padding-left: 1.5rem;
+    margin: 0.75rem 0;
+  }
+  :global(.event-description li) {
+    margin: 0.25rem 0;
+  }
+  :global(.event-description li p) {
+    margin: 0;
+  }
+  :global(.event-description ul ul) {
+    list-style-type: circle;
+  }
+  :global(.event-description ul ul ul) {
+    list-style-type: square;
+  }
+  :global(.event-description blockquote) {
+    border-left: 3px solid var(--accent);
+    padding-left: 1rem;
+    margin: 0.75rem 0;
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+  :global(.event-description pre) {
+    background: var(--bg-secondary);
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    margin: 0.75rem 0;
+    overflow-x: auto;
+  }
+  :global(.event-description code) {
+    background: var(--bg-secondary);
+    border-radius: 0.25rem;
+    padding: 0.15rem 0.3rem;
+    font-size: 0.875rem;
+  }
+  :global(.event-description pre code) {
+    background: none;
+    padding: 0;
+  }
+  :global(.event-description hr) {
+    border: none;
+    border-top: 2px solid var(--border);
+    margin: 1rem 0;
+  }
+  :global(.event-description h1),
+  :global(.event-description h2),
+  :global(.event-description h3) {
+    color: var(--text-primary);
+    margin: 1.25rem 0 0.5rem;
+  }
+  :global(.event-description a) {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+</style>
+
 <svelte:head>
   <title>{data.event.nombre} — DLAB</title>
 </svelte:head>
@@ -188,8 +252,8 @@
               </div>
             {/if}
           </div>
-          <div class="prose prose-sm max-w-none text-[--text-secondary] leading-relaxed">
-            {data.event.descripcion_larga}
+          <div class="event-description prose prose-sm max-w-none text-[--text-secondary] leading-relaxed">
+            {@html data.event.descripcion_larga}
           </div>
         </div>
       </div>

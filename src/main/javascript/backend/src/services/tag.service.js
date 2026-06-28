@@ -10,7 +10,7 @@ export function toTitleCase(str) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+    .replace(/(^|\s)\p{L}/gu, (match) => match.toUpperCase());
 }
 
 export function normalizeTagName(name) {

@@ -170,12 +170,15 @@ export const actions: Actions = {
   createValueProposition: async ({ cookies, request }) => {
     const token = getAdminAccessToken(cookies)!;
     const f = await request.formData();
+    const listRes = await apiGet<ValueProposition[]>('/api/admin/content/value_propositions', token);
+    const items = listRes.ok && Array.isArray(listRes.data) ? listRes.data : [];
+    const maxOrder = items.reduce((max, item) => Math.max(max, item.sort_order), -1);
     const payload = {
       title: str(f, 'title'),
       description: str(f, 'description'),
       icon_identifier: strOrNull(f, 'icon_identifier'),
       target_audience: strOrNull(f, 'target_audience'),
-      sort_order: num(f, 'sort_order', 0),
+      sort_order: maxOrder + 1,
       is_visible: bool(f, 'is_visible'),
     };
     const res = await apiPost('/api/admin/content/value_propositions', payload, token);
@@ -233,8 +236,11 @@ export const actions: Actions = {
   createParticipationStep: async ({ cookies, request }) => {
     const token = getAdminAccessToken(cookies)!;
     const f = await request.formData();
+    const listRes = await apiGet<ParticipationStep[]>('/api/admin/content/participation_steps', token);
+    const items = listRes.ok && Array.isArray(listRes.data) ? listRes.data : [];
+    const maxNumber = items.reduce((max, item) => Math.max(max, item.step_number), 0);
     const payload = {
-      step_number: num(f, 'step_number', 0),
+      step_number: maxNumber + 1,
       title: str(f, 'title'),
       description: str(f, 'description'),
       icon_identifier: strOrNull(f, 'icon_identifier'),
@@ -294,11 +300,14 @@ export const actions: Actions = {
   createSocialLink: async ({ cookies, request }) => {
     const token = getAdminAccessToken(cookies)!;
     const f = await request.formData();
+    const listRes = await apiGet<SocialLink[]>('/api/admin/content/social_links', token);
+    const items = listRes.ok && Array.isArray(listRes.data) ? listRes.data : [];
+    const maxOrder = items.reduce((max, item) => Math.max(max, item.sort_order), -1);
     const payload = {
       platform: str(f, 'platform'),
       url: str(f, 'url'),
       icon_identifier: strOrNull(f, 'icon_identifier'),
-      sort_order: num(f, 'sort_order', 0),
+      sort_order: maxOrder + 1,
       is_visible: bool(f, 'is_visible'),
     };
     const res = await apiPost('/api/admin/content/social_links', payload, token);

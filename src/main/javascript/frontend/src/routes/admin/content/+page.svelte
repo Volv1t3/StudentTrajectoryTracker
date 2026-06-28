@@ -3,7 +3,9 @@
   import { invalidateAll } from '$app/navigation';
   import { ArrowUp, ArrowDown, CheckCircle2, AlertCircle } from 'lucide-svelte';
   import FormField from '$lib/components/ui/FormField.svelte';
+  import RichTextField from '$lib/components/ui/RichTextField.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import { resolveIcon, iconKeys } from '$lib/utils/icons';
   import type {
     HomeHero,
     DlabIdentity,
@@ -33,10 +35,16 @@
 
   let { data, form }: Props = $props();
 
+  // Empty-string helper so FormField bindings don't receive null.
+  const s = (v: string | null | undefined) => v ?? '';
+
   // Local mutable copies of repeatable lists to support reordering UX. Re-synced
   // from server data after every action roundtrip via $effect below.
   let vpOrder = $state<ValueProposition[]>([...data.valuePropositions]);
   let stepOrder = $state<ParticipationStep[]>([...data.participationSteps]);
+  let newVpIcon = $state('');
+  let newStepIcon = $state('');
+  let newSocialIcon = $state('');
 
   $effect(() => {
     vpOrder = [...data.valuePropositions];
@@ -76,9 +84,6 @@
   let contactBanner = $derived(bannerFor('contact_info'));
   let socialBanner = $derived(bannerFor('social_links'));
 
-  // Empty-string helper so FormField bindings don't receive null.
-  const s = (v: string | null | undefined) => v ?? '';
-
   const refreshAfterSubmit = () => {
     return async ({ result, update }: { result: { type: string }; update: (options?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> }) => {
       await update({ reset: false, invalidateAll: false });
@@ -87,6 +92,7 @@
       }
     };
   };
+
 </script>
 
 <svelte:head>
@@ -143,13 +149,13 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <FormField
           name="primary_cta_label"
-          label="Texto del botón primario"
+          label="Texto del botón primario (Enlace al Formulario de Registro)"
           required
           value={s(data.homeHero.primary_cta_label)}
         />
         <FormField
           name="secondary_cta_label"
-          label="Texto del botón secundario"
+          label="Texto del botón secundario (Enlace al Listado de Proyectos)"
           value={s(data.homeHero.secondary_cta_label)}
         />
       </div>
@@ -193,14 +199,7 @@
 
     <form method="POST" action="?/saveDlabIdentity" use:enhance={refreshAfterSubmit} class="space-y-4">
       <FormField name="title" label="Título" required value={s(data.dlabIdentity.title)} />
-      <FormField
-        name="body"
-        type="textarea"
-        rows={6}
-        label="Cuerpo"
-        required
-        value={s(data.dlabIdentity.body)}
-      />
+      <RichTextField name="body" label="Cuerpo" value={data.dlabIdentity.body} required placeholder="Escribe el contenido aquí..." />
 
       <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div class="space-y-4">
@@ -210,12 +209,11 @@
             label="Título de misión"
             value={s(data.dlabIdentity.mission_title)}
           />
-          <FormField
+          <RichTextField
             name="mission_body"
-            type="textarea"
-            rows={5}
             label="Contenido de misión"
-            value={s(data.dlabIdentity.mission_body)}
+            value={data.dlabIdentity.mission_body}
+            minHeightClass="min-h-[120px]"
           />
         </div>
 
@@ -226,12 +224,11 @@
             label="Título de visión"
             value={s(data.dlabIdentity.vision_title)}
           />
-          <FormField
+          <RichTextField
             name="vision_body"
-            type="textarea"
-            rows={5}
             label="Contenido de visión"
-            value={s(data.dlabIdentity.vision_body)}
+            value={data.dlabIdentity.vision_body}
+            minHeightClass="min-h-[120px]"
           />
         </div>
       </div>
@@ -320,27 +317,39 @@
                 />
               </div>
 
-              <FormField
+              <RichTextField
                 name="description"
-                type="textarea"
-                rows={3}
                 label="Descripción"
+                value={vp.description}
                 required
-                value={s(vp.description)}
+                minHeightClass="min-h-[100px]"
               />
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <FormField
-                  name="icon_identifier"
-                  label="Identificador de ícono"
-                  value={s(vp.icon_identifier)}
-                />
-                <FormField
-                  name="sort_order"
-                  type="number"
-                  label="Orden"
-                  value={vp.sort_order}
-                />
+                <div class="space-y-1">
+                  <label for="icon_{vp.id}" class="block text-md font-bold mb-1" style="font-family: var(--font-subheading);">Ícono</label>
+                  <div class="flex items-center gap-3">
+                    <select
+                      name="icon_identifier"
+                      id="icon_{vp.id}"
+                      class="block flex-1 rounded-lg border border-[--border] px-3 py-2.5 text-sm text-[--text-primary] focus:outline-none focus:ring-2 focus:ring-[--color-red] focus:border-[--color-red] transition-colors duration-150 cursor-pointer"
+                      style="background: var(--bg-surface);"
+                      bind:value={vp.icon_identifier}
+                    >
+                      <option value="">Sin ícono</option>
+                      {#each iconKeys as key}
+                        <option value={key}>{key}</option>
+                      {/each}
+                    </select>
+                    <div class="w-14 h-14 rounded-lg border border-[--border] flex items-center justify-center shrink-0" style="background: var(--bg-secondary);">
+                      {#if resolveIcon(vp.icon_identifier)}
+                        <svelte:component this={resolveIcon(vp.icon_identifier)} size={28} />
+                      {:else}
+                        <span class="text-xs text-[--text-muted]">—</span>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <label class="flex items-center gap-3 cursor-pointer">
@@ -360,7 +369,7 @@
 
             <form method="POST" action="?/deleteValueProposition" use:enhance={refreshAfterSubmit}>
               <input type="hidden" name="id" value={vp.id} />
-              <Button type="submit" variant="danger" icon="Trash2" label="Eliminar" />
+              <Button type="submit" variant="ghost" icon="Trash2" label="Eliminar" />
             </form>
           </article>
         {/each}
@@ -383,10 +392,30 @@
           <FormField name="title" label="Título" required />
           <FormField name="target_audience" label="Audiencia objetivo" />
         </div>
-        <FormField name="description" type="textarea" rows={3} label="Descripción" required />
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <FormField name="icon_identifier" label="Identificador de ícono" />
-          <FormField name="sort_order" type="number" label="Orden" value={vpOrder.length} />
+        <RichTextField name="description" label="Descripción" required minHeightClass="min-h-[100px]" />
+        <div class="space-y-1">
+          <label for="icon_new" class="block text-md font-bold mb-1" style="font-family: var(--font-subheading);">Ícono</label>
+          <div class="flex items-center gap-3">
+            <select
+              name="icon_identifier"
+              id="icon_new"
+              class="block flex-1 rounded-lg border border-[--border] px-3 py-2.5 text-sm text-[--text-primary] focus:outline-none focus:ring-2 focus:ring-[--color-red] focus:border-[--color-red] transition-colors duration-150 cursor-pointer"
+              style="background: var(--bg-surface);"
+              bind:value={newVpIcon}
+            >
+              <option value="">Sin ícono</option>
+              {#each iconKeys as key}
+                <option value={key}>{key}</option>
+              {/each}
+            </select>
+            <div class="w-14 h-14 rounded-lg border border-[--border] flex items-center justify-center shrink-0" style="background: var(--bg-secondary);">
+              {#if resolveIcon(newVpIcon)}
+                <svelte:component this={resolveIcon(newVpIcon)} size={28} />
+              {:else}
+                <span class="text-xs text-[--text-muted]">—</span>
+              {/if}
+            </div>
+          </div>
         </div>
         <label class="flex items-center gap-3 cursor-pointer">
           <input
@@ -469,28 +498,37 @@
             <form method="POST" action="?/updateParticipationStep" use:enhance={refreshAfterSubmit} class="space-y-3">
               <input type="hidden" name="id" value={step.id} />
 
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <FormField
-                  name="step_number"
-                  type="number"
-                  label="Número de paso"
-                  value={step.step_number}
-                />
-                <FormField
-                  name="icon_identifier"
-                  label="Identificador de ícono"
-                  value={s(step.icon_identifier)}
-                />
+              <div class="space-y-1">
+                <label class="block text-md font-bold mb-1" style="font-family: var(--font-subheading);">Ícono</label>
+                <div class="flex items-center gap-3">
+                  <select
+                    name="icon_identifier"
+                    class="block flex-1 rounded-lg border border-[--border] px-3 py-2.5 text-sm text-[--text-primary] focus:outline-none focus:ring-2 focus:ring-[--color-red] focus:border-[--color-red] transition-colors duration-150 cursor-pointer"
+                    style="background: var(--bg-surface);"
+                    value={s(step.icon_identifier)}
+                  >
+                    <option value="">Sin ícono</option>
+                    {#each iconKeys as key}
+                      <option value={key}>{key}</option>
+                    {/each}
+                  </select>
+                  <div class="w-14 h-14 rounded-lg border border-[--border] flex items-center justify-center shrink-0" style="background: var(--bg-secondary);">
+                    {#if resolveIcon(step.icon_identifier)}
+                      <svelte:component this={resolveIcon(step.icon_identifier)} size={28} />
+                    {:else}
+                      <span class="text-xs text-[--text-muted]">—</span>
+                    {/if}
+                  </div>
+                </div>
               </div>
 
               <FormField name="title" label="Título" required value={s(step.title)} />
-              <FormField
+              <RichTextField
                 name="description"
-                type="textarea"
-                rows={3}
                 label="Descripción"
+                value={step.description}
                 required
-                value={s(step.description)}
+                minHeightClass="min-h-[100px]"
               />
 
               <label class="flex items-center gap-3 cursor-pointer">
@@ -510,7 +548,7 @@
 
             <form method="POST" action="?/deleteParticipationStep" use:enhance={refreshAfterSubmit}>
               <input type="hidden" name="id" value={step.id} />
-              <Button type="submit" variant="danger" icon="Trash2" label="Eliminar" />
+              <Button type="submit" variant="ghost" icon="Trash2" label="Eliminar" />
             </form>
           </article>
         {/each}
@@ -529,17 +567,32 @@
     <div class="pt-4 border-t border-[--border]">
       <h3 class="text-sm font-semibold text-[--text-primary] mb-3">Agregar paso</h3>
       <form method="POST" action="?/createParticipationStep" use:enhance={refreshAfterSubmit} class="space-y-3">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <FormField
-            name="step_number"
-            type="number"
-            label="Número de paso"
-            value={stepOrder.length + 1}
-          />
-          <FormField name="icon_identifier" label="Identificador de ícono" />
+        <div class="space-y-1">
+          <label for="icon_step_new" class="block text-md font-bold mb-1" style="font-family: var(--font-subheading);">Ícono</label>
+          <div class="flex items-center gap-3">
+            <select
+              name="icon_identifier"
+              id="icon_step_new"
+              class="block flex-1 rounded-lg border border-[--border] px-3 py-2.5 text-sm text-[--text-primary] focus:outline-none focus:ring-2 focus:ring-[--color-red] focus:border-[--color-red] transition-colors duration-150 cursor-pointer"
+              style="background: var(--bg-surface);"
+              bind:value={newStepIcon}
+            >
+              <option value="">Sin ícono</option>
+              {#each iconKeys as key}
+                <option value={key}>{key}</option>
+              {/each}
+            </select>
+            <div class="w-14 h-14 rounded-lg border border-[--border] flex items-center justify-center shrink-0" style="background: var(--bg-secondary);">
+              {#if resolveIcon(newStepIcon)}
+                <svelte:component this={resolveIcon(newStepIcon)} size={28} />
+              {:else}
+                <span class="text-xs text-[--text-muted]">—</span>
+              {/if}
+            </div>
+          </div>
         </div>
         <FormField name="title" label="Título" required />
-        <FormField name="description" type="textarea" rows={3} label="Descripción" required />
+        <RichTextField name="description" label="Descripción" required minHeightClass="min-h-[100px]" />
         <label class="flex items-center gap-3 cursor-pointer">
           <input
             type="checkbox"
@@ -661,12 +714,11 @@
                 label="Encabezado CTA"
                 value={s(contact.cta_headline)}
               />
-              <FormField
+              <RichTextField
                 name="cta_description"
-                type="textarea"
-                rows={2}
                 label="Descripción CTA"
-                value={s(contact.cta_description)}
+                value={contact.cta_description}
+                minHeightClass="min-h-[80px]"
               />
 
               <label class="flex items-center gap-3 cursor-pointer">
@@ -708,7 +760,7 @@
         </div>
         <FormField name="physical_location" label="Ubicación física" />
         <FormField name="cta_headline" label="Encabezado CTA" />
-        <FormField name="cta_description" type="textarea" rows={2} label="Descripción CTA" />
+        <RichTextField name="cta_description" label="Descripción CTA" minHeightClass="min-h-[80px]" />
         <label class="flex items-center gap-3 cursor-pointer">
           <input
             type="checkbox"
@@ -771,18 +823,28 @@
                 <FormField name="url" type="url" label="URL" required value={s(link.url)} />
               </div>
 
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <FormField
-                  name="icon_identifier"
-                  label="Identificador de ícono"
-                  value={s(link.icon_identifier)}
-                />
-                <FormField
-                  name="sort_order"
-                  type="number"
-                  label="Orden"
-                  value={link.sort_order}
-                />
+              <div class="space-y-1">
+                <label class="block text-md font-bold mb-1" style="font-family: var(--font-subheading);">Ícono</label>
+                <div class="flex items-center gap-3">
+                  <select
+                    name="icon_identifier"
+                    class="block flex-1 rounded-lg border border-[--border] px-3 py-2.5 text-sm text-[--text-primary] focus:outline-none focus:ring-2 focus:ring-[--color-red] focus:border-[--color-red] transition-colors duration-150 cursor-pointer"
+                    style="background: var(--bg-surface);"
+                    value={s(link.icon_identifier)}
+                  >
+                    <option value="">Sin ícono</option>
+                    {#each iconKeys as key}
+                      <option value={key}>{key}</option>
+                    {/each}
+                  </select>
+                  <div class="w-14 h-14 rounded-lg border border-[--border] flex items-center justify-center shrink-0" style="background: var(--bg-secondary);">
+                    {#if resolveIcon(link.icon_identifier)}
+                      <svelte:component this={resolveIcon(link.icon_identifier)} size={28} />
+                    {:else}
+                      <span class="text-xs text-[--text-muted]">—</span>
+                    {/if}
+                  </div>
+                </div>
               </div>
 
               <label class="flex items-center gap-3 cursor-pointer">
@@ -816,14 +878,29 @@
           <FormField name="platform" label="Plataforma" required />
           <FormField name="url" type="url" label="URL" required />
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <FormField name="icon_identifier" label="Identificador de ícono" />
-          <FormField
-            name="sort_order"
-            type="number"
-            label="Orden"
-            value={data.socialLinks.length}
-          />
+        <div class="space-y-1">
+          <label for="icon_social_new" class="block text-md font-bold mb-1" style="font-family: var(--font-subheading);">Ícono</label>
+          <div class="flex items-center gap-3">
+            <select
+              name="icon_identifier"
+              id="icon_social_new"
+              class="block flex-1 rounded-lg border border-[--border] px-3 py-2.5 text-sm text-[--text-primary] focus:outline-none focus:ring-2 focus:ring-[--color-red] focus:border-[--color-red] transition-colors duration-150 cursor-pointer"
+              style="background: var(--bg-surface);"
+              bind:value={newSocialIcon}
+            >
+              <option value="">Sin ícono</option>
+              {#each iconKeys as key}
+                <option value={key}>{key}</option>
+              {/each}
+            </select>
+            <div class="w-14 h-14 rounded-lg border border-[--border] flex items-center justify-center shrink-0" style="background: var(--bg-secondary);">
+              {#if resolveIcon(newSocialIcon)}
+                <svelte:component this={resolveIcon(newSocialIcon)} size={28} />
+              {:else}
+                <span class="text-xs text-[--text-muted]">—</span>
+              {/if}
+            </div>
+          </div>
         </div>
         <label class="flex items-center gap-3 cursor-pointer">
           <input

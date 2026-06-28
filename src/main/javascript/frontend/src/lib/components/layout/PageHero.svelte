@@ -55,11 +55,11 @@
 
     {#if subtitle}
       <p
-        class="mt-4 sm:mt-5 max-w-3xl leading-relaxed font-light text-[--color-text-muted-on-dark] break-words text-sm sm:text-base"
+        class="mt-4 sm:mt-5 p-5 max-w-3xl leading-relaxed font-light text-[--color-text-muted-on-dark] break-words text-sm sm:text-base"
         class:md:text-lg={variant === 'landing'}
         class:lg:text-xl={variant === 'landing'}
       >
-        {subtitle}
+        {@html subtitle}
       </p>
     {/if}
 

@@ -36,12 +36,12 @@
     {#if (project.categorias ?? []).length > 0}
       <div class="flex flex-wrap gap-1.5 mb-3">
         {#each project.categorias ?? [] as categoria}
-          <span class="text-xs text-[--text-muted] bg-[--bg-secondary] px-2 py-0.5 rounded-full">{categoria}</span>
+          <span class="text-md bg-white/20 px-2 py-0.5 rounded-full font-heading">{categoria}</span>
         {/each}
       </div>
     {/if}
     <h3 class="text-base font-bold text-[--text-primary] leading-snug">{project.nombre}</h3>
-    <p class="text-sm text-[--text-secondary] mt-1.5 line-clamp-3 flex-1">{project.descripcion_corta}</p>
+    <p class="text-sm text-[--text-secondary] mt-1.5 line-clamp-3 flex-1">{@html project.descripcion_corta}</p>
     <div class="flex flex-wrap gap-2 mt-4">
       {#if project.duracion_semanal}
         <MetaChip icon="Clock" value={project.duracion_semanal} />

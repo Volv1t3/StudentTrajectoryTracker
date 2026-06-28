@@ -74,7 +74,7 @@
     </div>
   </div>
 
-  <div class="bg-surface rounded-xl border border-[--border] overflow-hidden">
+  <div class="bg-surface rounded-xl border border-[--border] overflow-x-auto">
     <table class="w-full text-sm">
       <thead class="bg-[--bg-secondary] border-b border-[--border] text-xs font-semibold text-[--text-muted] uppercase tracking-wide">
         <tr>

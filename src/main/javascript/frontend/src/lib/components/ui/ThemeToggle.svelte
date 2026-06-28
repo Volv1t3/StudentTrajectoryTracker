@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Sun, Moon } from 'lucide-svelte';
+  import { theme, toggleTheme } from '$lib/utils/theme.svelte';
 
   interface Props {
     iconSize?: number;
@@ -15,36 +16,7 @@
     showCurrentModeIcon = true,
   }: Props = $props();
 
-  let isDark = $state(false);
-
-  function getPreferredTheme() {
-    if (typeof window === 'undefined') return 'dark';
-
-    const rootTheme = document.documentElement.getAttribute('data-theme');
-    if (rootTheme === 'dark' || rootTheme === 'light') return rootTheme;
-
-    const storedTheme = localStorage.getItem('theme');
-    if (storedTheme === 'dark' || storedTheme === 'light') return storedTheme;
-
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-
-  function applyTheme(theme: 'dark' | 'light') {
-    document.documentElement.setAttribute('data-theme', theme);
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-    document.documentElement.classList.toggle('light', theme === 'light');
-    localStorage.setItem('theme', theme);
-    isDark = theme === 'dark';
-  }
-
-  function toggleTheme() {
-    applyTheme(isDark ? 'light' : 'dark');
-  }
-
-  $effect(() => {
-    if (typeof window === 'undefined') return;
-    isDark = getPreferredTheme() === 'dark';
-  });
+  const isDark = $derived(theme.isDark);
 </script>
 
 <button

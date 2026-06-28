@@ -1,6 +1,7 @@
 <script lang="ts">
   import Button from '$lib/components/ui/Button.svelte';
   import PageHero from '$lib/components/layout/PageHero.svelte';
+  import { resolveIcon } from '$lib/utils/icons';
   import type { ValueProposition, ParticipationStep } from '$lib/types/cms';
 
   interface Props {
@@ -33,8 +34,11 @@
       {#each data.valuePropositions as vp, i (vp.id)}
         <article class={`btn-grid border-2 p-10 bg-[--text-primary] hover:bg-[--color-red-hover] text-md font-subheading rounded-lg transition-all duration-200 hover:-translate-y-0.5 
         hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[--color-red] focus-visible:ring-offset-2 ${i % 5 === 0 ? 'md:col-span-6 lg:col-span-7' : i % 5 === 1 ? 'md:col-span-3 lg:col-span-5' : i % 5 === 2 ? 'md:col-span-3 lg:col-span-4' : i % 5 === 3 ? 'md:col-span-6 lg:col-span-8' : 'md:col-span-6 lg:col-span-4'}`}>
+          {#if resolveIcon(vp.icon_identifier)}
+            <svelte:component this={resolveIcon(vp.icon_identifier)} size={32} class="text-black mb-3" />
+          {/if}
           <h3 class="text-lg font-subheading" style="color: var(--color-primary); font-weight: bold;">{vp.title}</h3>
-          <p class="text-sm mt-2 leading-relaxed" style="color: var(--color-primary); font-family: var(--font-sans);">{vp.description}</p>
+          <p class="text-sm mt-2 leading-relaxed" style="color: var(--color-primary); font-family: var(--font-sans);">{@html vp.description}</p>
         </article>
       {/each}
     </div>
@@ -61,7 +65,7 @@
               <h4 class="font-semibold text-[--text-heading] text-xl" style="font-family: var(--font-subheading);">{step.title}</h4>
             </div>
             <div class="w-full h-0.5 mx-auto mb-6" style="background: var(--accent); opacity: 0.3;"></div>
-            <p class="text-md text-justify text-[--text-secondary] leading-relaxed" style="font-family: var(--font-sans);">{step.description}</p>
+            <p class="text-md text-justify text-[--text-secondary] leading-relaxed" style="font-family: var(--font-sans);">{@html step.description}</p>
           </article>
         {/each}
       </div>

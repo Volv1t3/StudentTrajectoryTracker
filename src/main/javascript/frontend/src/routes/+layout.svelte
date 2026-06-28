@@ -2,7 +2,7 @@
   import { page } from '$app/stores';
   import { fly } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
-  import { ModeWatcher } from 'mode-watcher';
+  import { theme } from '$lib/utils/theme.svelte';
   import { identify, distinctIdForCollaborator, capture, reset } from '$lib/utils/posthog';
   import '../app.css';
 
@@ -79,14 +79,25 @@
       distinct_role: distinctRole
     });
   });
+
+  $effect(() => {
+    if (typeof document === 'undefined') return;
+
+    const currentMode = theme.current;
+    if (currentMode !== 'light' && currentMode !== 'dark') return;
+
+    const root = document.documentElement;
+    root.setAttribute('data-theme', currentMode);
+    root.classList.toggle('dark', currentMode === 'dark');
+    root.classList.toggle('light', currentMode === 'light');
+    root.style.colorScheme = currentMode;
+  });
 </script>
 
 <svelte:head>
   <title>DLAB — Development Lab | USFQ</title>
   <meta name="description" content="Public-facing informational and transactional website for DLAB at USFQ." />
 </svelte:head>
-
-<ModeWatcher defaultMode="dark" />
 
 <div class="min-h-screen flex flex-col" style="background: var(--bg-primary); color: var(--text-primary);">
   {#key $page.url.pathname}

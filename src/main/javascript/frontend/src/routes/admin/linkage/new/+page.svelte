@@ -9,6 +9,7 @@
   } from 'lucide-svelte';
   import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import RichTextField from '$lib/components/ui/RichTextField.svelte';
 
   type ProjectTag = {
     id: number;
@@ -309,7 +310,7 @@
                   <div class="flex items-start justify-between gap-3">
                     <div>
                       <p class="font-medium text-[--text-primary]">{project.title}</p>
-                      <p class="mt-1 text-xs text-[--text-muted]">{project.short_description}</p>
+                      <p class="mt-1 text-xs text-[--text-muted]">{@html project.short_description}</p>
                     </div>
                     <StatusBadge status={project.status} />
                   </div>
@@ -413,18 +414,20 @@
           <div class="space-y-4">
             <div class="rounded-xl border border-[--border] bg-[--bg-secondary] p-4">
               <h3 class="mb-3 text-sm font-semibold text-[--text-primary]">Resumen del proyecto</h3>
-              <div class="grid gap-4 md:grid-cols-2">
+              <div class="grid gap-4 md:grid-cols-1">
                 <div class="space-y-2">
                   <p class="text-sm font-bold text-[--text-secondary]">Descripción corta</p>
-                  <p class="text-sm text-[--text-secondary]">{selectedProject.short_description || 'Sin descripción corta registrada'}</p>
+                  <p class="text-sm text-[--text-secondary]">{@html selectedProject.short_description || 'Sin descripción corta registrada'}</p>
                 </div>
                 <div class="space-y-2">
                   <p class="text-sm font-bold text-[--text-secondary]">Descripción ampliada</p>
-                  <p class="text-sm text-[--text-secondary]">{selectedProject.full_description || 'Sin descripción ampliada registrada'}</p>
+                  <div class="text-[--text-secondary] project-description prose prose-sm max-w-none leading-relaxed">
+                    {@html selectedProject.full_description || 'Sin descripción ampliada registrada'}
+                  </div>
                 </div>
                 <div class="space-y-2">
                   <p class="text-sm font-bold text-[--text-secondary]">Público objetivo</p>
-                  <p class="text-sm text-[--text-secondary]">{selectedProject.target_audience || 'Sin público objetivo registrado'}</p>
+                  <p class="text-sm text-[--text-secondary] project-description prose prose-sm max-w-noneleading-relaxed">{@html selectedProject.target_audience || 'Sin público objetivo registrado'}</p>
                 </div>
                 <div class="space-y-2">
                   <p class="text-sm font-bold text-[--text-secondary]">Estado</p>
@@ -547,11 +550,11 @@
               <div class="grid gap-4 md:grid-cols-2">
                 <div class="space-y-2">
                   <p class="text-sm font-bold text-[--text-secondary]">Motivación</p>
-                  <p class="text-sm text-[--text-secondary]">{selectedCollaborator.motivation_description || 'Sin motivación registrada'}</p>
+                  <p class="text-sm text-[--text-secondary]">{@html selectedCollaborator.motivation_description || 'Sin motivación registrada'}</p>
                 </div>
                 <div class="space-y-2">
                   <p class="text-sm font-bold text-[--text-secondary]">Experiencia previa</p>
-                  <p class="text-sm text-[--text-secondary]">{selectedCollaborator.experience_description || 'Sin experiencia registrada'}</p>
+                  <p class="text-sm text-[--text-secondary]">{@html selectedCollaborator.experience_description || 'Sin experiencia registrada'}</p>
                 </div>
               </div>
             </div>
@@ -683,28 +686,27 @@
 
         <div class="grid gap-4 lg:grid-cols-2">
           <div>
-            <label for="manual_reason" class="mb-2 block text-sm font-semibold text-[--text-primary]">Motivo de vinculación</label>
-            <textarea
-              id="manual_reason"
+            <RichTextField
               name="reason_for_linking"
-              bind:value={manualReason}
-              rows={5}
+              label="Motivo de vinculación"
+              value={manualReason}
               placeholder="Describe por qué esta vinculación debe aprobarse manualmente."
-              class="w-full rounded-xl border border-[--border] bg-[--bg-secondary] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[--color-red]"
-            ></textarea>
-            <p class="mt-2 text-xs text-[--text-muted]">Mínimo 20 caracteres. Actual: {manualReason.trim().length}</p>
+              required
+              minHeightClass="min-h-[120px]"
+              onchange={(html) => { manualReason = html; }}
+            />
+            <p class="mt-2 text-xs text-[--text-muted]">Mínimo 20 caracteres. Actual: {manualReason.replace(/<[^>]*>/g, '').trim().length}</p>
           </div>
 
           <div>
-            <label for="manual_notes" class="mb-2 block text-sm font-semibold text-[--text-primary]">Notas administrativas</label>
-            <textarea
-              id="manual_notes"
+            <RichTextField
               name="admin_notes"
-              bind:value={manualNotes}
-              rows={5}
+              label="Notas administrativas"
+              value={manualNotes}
               placeholder="Opcional"
-              class="w-full rounded-xl border border-[--border] bg-[--bg-secondary] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[--color-red]"
-            ></textarea>
+              minHeightClass="min-h-[120px]"
+              onchange={(html) => { manualNotes = html; }}
+            />
           </div>
         </div>
 

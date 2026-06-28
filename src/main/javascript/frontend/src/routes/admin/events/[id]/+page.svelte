@@ -3,12 +3,29 @@
   import { ArrowLeft } from 'lucide-svelte';
   import FormField from '$lib/components/ui/FormField.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import RichTextField from '$lib/components/ui/RichTextField.svelte';
+  import { slugify } from '$lib/utils';
 
   interface Props {
     data: { event: any; admins: any[] };
   }
 
   let { data }: Props = $props();
+
+  let nombre = $state(data.event?.nombre || '');
+  let slug = $state(data.event?.slug || '');
+  let slugEdited = $state(false);
+
+  $effect(() => {
+    if (!slugEdited) {
+      slug = slugify(nombre);
+    }
+  });
+
+  function handleSlugInput(value: string) {
+    slug = slugify(value);
+    slugEdited = true;
+  }
 </script>
 
 <svelte:head>
@@ -28,8 +45,20 @@
           <div class="w-full h-0.5" style="background: var(--accent); opacity: 0.3;"></div>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <FormField name="nombre" label="Nombre del evento" required value={data.event?.nombre} />
-      <FormField name="slug" label="Slug del evento" required value={data.event?.slug} hint="Se usa en la URL pública del evento." />
+      <FormField name="nombre" label="Nombre del evento" required bind:value={nombre} />
+      <div class="space-y-1">
+        <label for="slug" class="block text-md font-bold mb-1" style="font-family: var(--font-subheading);">Slug del evento</label>
+        <input
+          id="slug"
+          name="slug"
+          type="text"
+          bind:value={slug}
+          oninput={(event) => handleSlugInput((event.currentTarget as HTMLInputElement).value)}
+          class="block w-full rounded-lg border border-[--border] px-3 py-2.5 text-sm text-[--text-primary] placeholder-[--text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-red] focus:border-[--color-red] transition-colors duration-150"
+          style="background: var(--bg-surface);"
+        />
+        <p class="mt-1 text-xs text-[--text-muted]">Se genera automáticamente desde el nombre, pero puedes editarlo.</p>
+      </div>
     </div>
     <FormField name="tipo" type="select" label="Tipo" required value={data.event?.tipo}>
       <option value="">Seleccionar...</option>
@@ -41,9 +70,9 @@
       <option value="Visita">Visita</option>
       <option value="Otro">Otro</option>
     </FormField>
-    <FormField name="descripcion_corta" type="textarea" rows={2} label="Descripción corta" required value={data.event?.descripcion_corta} />
-    <FormField name="descripcion_larga" type="textarea" rows={6} label="Descripción completa" required value={data.event?.descripcion_larga} />
-    <FormField name="target_audience" type="textarea" rows={2} label="Audiencia objetivo" value={data.event?.target_audience} />
+    <RichTextField name="descripcion_corta" label="Descripción corta" value={data.event?.descripcion_corta} required minHeightClass="min-h-[80px]" />
+    <RichTextField name="descripcion_larga" label="Descripción completa" value={data.event?.descripcion_larga} required />
+    <RichTextField name="target_audience" label="Audiencia objetivo" value={data.event?.target_audience} minHeightClass="min-h-[80px]" />
 
     <div>
           <h2 class="text-lg font-semibold text-[--text-primary]">Información organizacional del evento</h2>

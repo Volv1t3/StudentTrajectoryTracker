@@ -3,6 +3,7 @@
   import Modal from '$lib/components/ui/Modal.svelte';
   import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import RichTextField from '$lib/components/ui/RichTextField.svelte';
 
   type ProjectCategory = {
     id: number;
@@ -105,7 +106,7 @@
   }
 
   function submitRejection() {
-    if (!reviewNotes.trim()) {
+    if (!reviewNotes.replace(/<[^>]*>/g, '').trim()) {
       modalError = 'Debes ingresar un motivo de rechazo.';
       return;
     }
@@ -293,7 +294,7 @@
         <div class="w-full h-0.5" style="background: var(--accent); opacity: 0.3;"></div>
       </div>
       <div class="rounded-xl border border-[--border] bg-[--bg-secondary] p-4">
-        <p class="text-sm text-[--text-secondary] leading-relaxed whitespace-pre-wrap">{selectedApplication.reason_for_applying}</p>
+        <p class="text-sm text-[--text-secondary] leading-relaxed whitespace-pre-wrap">{@html selectedApplication.reason_for_applying}</p>
       </div>
 
       <div>
@@ -349,17 +350,22 @@
           {/if}
         </label>
         {#if isReadOnly}
-          <div class="min-h-[108px] w-full rounded-lg border border-[--border] bg-[--bg-secondary] px-3 py-2.5 text-sm text-[--text-secondary] whitespace-pre-wrap">
-            {reviewNotes || 'Sin notas registradas'}
+          <div class="min-h-[108px] w-full rounded-lg border border-[--border] bg-[--bg-secondary] px-3 py-2.5 text-sm text-[--text-secondary]">
+            {#if reviewNotes}
+              {@html reviewNotes}
+            {:else}
+              Sin notas registradas
+            {/if}
           </div>
         {:else}
-          <textarea
-            id="admin_notes"
-            bind:value={reviewNotes}
-            rows={4}
+          <RichTextField
+            name="admin_notes"
+            label=""
+            value={reviewNotes}
             placeholder="En caso de rechazo, este campo es obligatorio y será visible para el colaborador. En retiro es opcional."
-            class="w-full rounded-lg border border-[--border] bg-[--bg-secondary] px-3 py-2.5 text-sm resize-none"
-          ></textarea>
+            minHeightClass="min-h-[100px]"
+            onchange={(html) => { reviewNotes = html; }}
+          />
         {/if}
       </div>
 

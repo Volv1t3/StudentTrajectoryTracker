@@ -3,6 +3,7 @@
   import { CheckCircle } from 'lucide-svelte';
   import { capture } from '$lib/utils/posthog';
   import FormField from '$lib/components/ui/FormField.svelte';
+  import RichTextField from '$lib/components/ui/RichTextField.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import InfoRow from '$lib/components/ui/InfoRow.svelte';
   import PageHero from '$lib/components/layout/PageHero.svelte';
@@ -121,7 +122,7 @@
             <FormField name="correo" type="email" label="Ingresa tu correo electrónico de la USFQ" required placeholder="tu@estud.usfq.edu.ec" error={form?.errors?.correo} />
             <FormField name="codigo_banner" type="text" label="Ingresa tu código banner de la USFQ" required placeholder="00123456" error={form?.errors?.codigo_banner}/>
             <FormField name="asunto" label="Ingresa el Asunto de tu mensaje" required placeholder="¿En qué podemos ayudarte?" error={form?.errors?.asunto} />
-            <FormField name="mensaje" type="textarea" label="Escribe tu mensaje" required placeholder="Escribe tu mensaje..." rows={5} error={form?.errors?.mensaje} />
+            <RichTextField name="mensaje" label="Escribe tu mensaje" placeholder="Escribe tu mensaje..." required minHeightClass="min-h-[120px]" />
             <Button type="submit" variant="primary" fullWidth label="Enviar mensaje" />
           </form>
         {/if}

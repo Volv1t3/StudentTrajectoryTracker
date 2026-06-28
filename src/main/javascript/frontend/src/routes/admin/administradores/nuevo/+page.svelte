@@ -4,8 +4,13 @@
   import { PASSWORD_POLICY_HINT } from '$lib/utils/password';
   import FormField from '$lib/components/ui/FormField.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import { TelInput } from 'svelte-tel-input';
+  import type { CountryCode } from 'svelte-tel-input/types';
 
   let { form }: { form: { error?: string } | null } = $props();
+  let phoneNumber = $state('');
+  let phoneCountry = $state<CountryCode | null>('EC');
+  let phoneValid = $state(true);
 </script>
 
 <svelte:head>
@@ -50,7 +55,19 @@
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <FormField name="phoneNumber" label="Teléfono" hint="Opcional." />
+      <div>
+        <label for="phone-input" class="block text-md font-bold mb-1" style="font-family: var(--font-subheading);">Teléfono</label>
+        <TelInput
+          id="phone-input"
+          bind:value={phoneNumber}
+          bind:country={phoneCountry}
+          bind:valid={phoneValid}
+          options={{ autoPlaceholder: true, spaces: true }}
+          class="block w-full rounded-lg border border-[--border] px-3 py-2.5 text-sm text-[--text-primary] placeholder-[--text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-red] focus:border-[--color-red] transition-colors duration-150"
+          style="background: var(--bg-surface);"
+        />
+        <input type="hidden" name="phoneNumber" value={phoneNumber} />
+      </div>
       <FormField name="dateOfBirth" type="date" label="Fecha de nacimiento" hint="Opcional." />
     </div>
 

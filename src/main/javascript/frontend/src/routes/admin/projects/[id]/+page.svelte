@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { ArrowLeft, Trash2 } from 'lucide-svelte';
+  import { ArrowLeft, Trash2, Search } from 'lucide-svelte';
   import FormField from '$lib/components/ui/FormField.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import RichTextField from '$lib/components/ui/RichTextField.svelte';
   import AvailabilityPicker from '$lib/components/ui/AvailabilityPicker.svelte';
+  import { slugify } from '$lib/utils';
 
   type TagOption = { id: number; name: string; slug: string; category: string };
   type MeetingDay = { dayOfWeek: string; startTime: string; endTime: string; notes: string };
@@ -29,6 +31,28 @@
   let newTagName = $state('');
   let newTagCategory = $state(data.systemTags[0]?.name || 'Diseño');
   let newSkillName = $state('');
+  let nombre = $state(data.project?.nombre || '');
+  let slug = $state(data.project?.slug || '');
+  let slugEdited = $state(false);
+  let subcategorySearch = $state('');
+
+  $effect(() => {
+    if (!slugEdited) {
+      slug = slugify(nombre);
+    }
+  });
+
+  function handleSlugInput(value: string) {
+    slug = slugify(value);
+    slugEdited = true;
+  }
+
+  const filteredSubcategories = $derived(
+    (data.projectTags ?? []).filter((tag) => {
+      const haystack = `${tag.name} ${tag.category}`.toLowerCase();
+      return !subcategorySearch || haystack.includes(subcategorySearch.toLowerCase());
+    })
+  );
 
   if (meetingDays.length === 0) {
     meetingDays = [{ dayOfWeek: 'Lunes', startTime: '09:00', endTime: '10:00', notes: '' }];
@@ -107,12 +131,24 @@
           <div class="w-full h-0.5" style="background: var(--accent); opacity: 0.3;"></div>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <FormField name="nombre" label="Nombre del proyecto" required value={data.project?.nombre} />
-      <FormField name="slug" label="Slug" value={data.project?.slug} hint="Opcional. Se mantiene si no lo cambias." />
+      <FormField name="nombre" label="Nombre del proyecto" required bind:value={nombre} />
+      <div class="space-y-1">
+        <label for="slug" class="block text-md font-bold mb-1" style="font-family: var(--font-subheading);">Slug</label>
+        <input
+          id="slug"
+          name="slug"
+          type="text"
+          bind:value={slug}
+          oninput={(event) => handleSlugInput((event.currentTarget as HTMLInputElement).value)}
+          class="block w-full rounded-lg border border-[--border] px-3 py-2.5 text-sm text-[--text-primary] placeholder-[--text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-red] focus:border-[--color-red] transition-colors duration-150"
+          style="background: var(--bg-surface);"
+        />
+        <p class="mt-1 text-xs text-[--text-muted]">Se genera automáticamente desde el nombre, pero puedes editarlo.</p>
+      </div>
     </div>
-    <FormField name="descripcion_corta" type="textarea" rows={2} label="Descripción corta" required value={data.project?.descripcion_corta} />
-    <FormField name="descripcion_larga" type="textarea" rows={6} label="Descripción completa" required value={data.project?.descripcion_larga} />
-    <FormField name="target_audience" type="textarea" rows={2} label="Audiencia objetivo" value={data.project?.target_audience} />
+    <RichTextField name="descripcion_corta" label="Descripción corta" value={data.project?.descripcion_corta} required minHeightClass="min-h-[80px]" />
+    <RichTextField name="descripcion_larga" label="Descripción completa" value={data.project?.descripcion_larga} required />
+    <RichTextField name="target_audience" label="Audiencia objetivo" value={data.project?.target_audience} minHeightClass="min-h-[80px]" />
 
     <div>
           <h2 class="text-lg font-semibold text-[--text-primary]">Información organizacional del proyecto</h2>
@@ -159,7 +195,7 @@
           <div class="w-full h-0.5" style="background: var(--accent); opacity: 0.3;"></div>
       </div>
       <div class="flex items-center justify-between gap-3">
-        <span class="text-sm text-[--text-muted]">{(data.project.categories?.length ?? 0)} seleccionadas · {(data.project.categories?.length ?? 0) - (data.systemTagsMeta?.total ?? 0 )} {(data.project.categories?.length ?? 0) - (data.systemTagsMeta?.total ?? 0 ) > 1 ? 'disponibles': 'disponible'} ⋅ {data.systemTagsMeta?.total ?? 0} totales</span>
+        <span class="text-sm text-[--text-muted]">{(data.project.categories?.length ?? 0)} seleccionadas · {Math.abs((data.project.categories?.length ?? 0) - (data.systemTagsMeta?.total ?? 0 ))} {(data.project.categories?.length ?? 0) - (data.systemTagsMeta?.total ?? 0 ) > 1 ? 'disponibles': 'disponible'} ⋅ {data.systemTagsMeta?.total ?? 0} totales</span>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-auto border border-[--border] rounded-xl p-4 bg-[--bg-secondary]">
         {#each data.systemTags ?? [] as tag}
@@ -187,10 +223,19 @@
           <div class="w-full h-0.5" style="background: var(--accent); opacity: 0.3;"></div>
       </div>
       <div class="flex items-center justify-between gap-3">
-        <span class="text-xs text-[--text-muted]">{(data.project.subcategories?.length ?? 0)} definidas · {data.project.subcategories?.total ?? 0} totales</span>
+        <span class="text-xs text-[--text-muted]">{data.project.subcategories.length} disponibles · {data.projectTagsMeta?.total ?? 0} totales</span>
+        <div class="relative">
+          <Search class="absolute left-3 top-1/2 -translate-y-1/2 text-[--text-muted]" size={14} />
+          <input
+            type="text"
+            bind:value={subcategorySearch}
+            placeholder="Buscar subcategorías..."
+            class="rounded-lg border border-[--border] bg-surface py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-[--color-red]"
+          />
+        </div>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-72 overflow-auto border border-[--border] rounded-xl p-4 bg-[--bg-secondary]">
-        {#each data.projectTags ?? [] as tag}
+        {#each filteredSubcategories as tag}
           <label class="flex items-start gap-3 rounded-lg bg-surface border border-[--border] p-3 cursor-pointer">
             <input
               type="checkbox"

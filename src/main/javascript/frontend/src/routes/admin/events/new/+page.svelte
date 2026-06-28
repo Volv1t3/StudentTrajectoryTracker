@@ -3,6 +3,7 @@
   import { ArrowLeft } from 'lucide-svelte';
   import FormField from '$lib/components/ui/FormField.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import RichTextField from '$lib/components/ui/RichTextField.svelte';
   import { slugify } from '$lib/utils';
 
   interface Props {
@@ -75,9 +76,9 @@
       <option value="Visita">Visita</option>
       <option value="Otro">Otro</option>
     </FormField>
-    <FormField name="descripcion_corta" type="textarea" rows={2} label="Descripción corta" required />
-    <FormField name="descripcion_larga" type="textarea" rows={6} label="Descripción completa" required />
-    <FormField name="target_audience" type="textarea" rows={2} label="Audiencia objetivo" />
+    <RichTextField name="descripcion_corta" label="Descripción corta" required minHeightClass="min-h-[80px]" />
+    <RichTextField name="descripcion_larga" label="Descripción completa" required />
+    <RichTextField name="target_audience" label="Audiencia objetivo" minHeightClass="min-h-[80px]" />
 
     <div>
           <h2 class="text-lg font-semibold text-[--text-primary]">Información organizacional del evento</h2>

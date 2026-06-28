@@ -106,6 +106,70 @@
   const videoEmbedUrl = $derived(getVideoEmbedUrl(data.project.video_url));
 </script>
 
+<style>
+  :global(.project-description ul) {
+    list-style-type: disc;
+    padding-left: 1.5rem;
+    margin: 0.75rem 0;
+  }
+  :global(.project-description ol) {
+    list-style-type: decimal;
+    padding-left: 1.5rem;
+    margin: 0.75rem 0;
+  }
+  :global(.project-description li) {
+    margin: 0.25rem 0;
+  }
+  :global(.project-description li p) {
+    margin: 0;
+  }
+  :global(.project-description ul ul) {
+    list-style-type: circle;
+  }
+  :global(.project-description ul ul ul) {
+    list-style-type: square;
+  }
+  :global(.project-description blockquote) {
+    border-left: 3px solid var(--accent);
+    padding-left: 1rem;
+    margin: 0.75rem 0;
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+  :global(.project-description pre) {
+    background: var(--bg-secondary);
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    margin: 0.75rem 0;
+    overflow-x: auto;
+  }
+  :global(.project-description code) {
+    background: var(--bg-secondary);
+    border-radius: 0.25rem;
+    padding: 0.15rem 0.3rem;
+    font-size: 0.875rem;
+  }
+  :global(.project-description pre code) {
+    background: none;
+    padding: 0;
+  }
+  :global(.project-description hr) {
+    border: none;
+    border-top: 2px solid var(--border);
+    margin: 1rem 0;
+  }
+  :global(.project-description h1),
+  :global(.project-description h2),
+  :global(.project-description h3) {
+    color: var(--text-primary);
+    margin: 1.25rem 0 0.5rem;
+  }
+  :global(.project-description a) {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+</style>
+
 <svelte:head>
   <title>{data.project.nombre} — DLAB</title>
 </svelte:head>
@@ -216,15 +280,15 @@
               />
             {:else}
               <div class="hero-grid opacity-[0.12] absolute inset-0"></div>
-              <div class="relative flex items-center justify-center aspect-[16/9]">
+              <div class="relative flex items-center justify-center aspect-video">
                 <div class="w-24 h-24 rounded-2xl flex items-center justify-center" style="background: var(--accent); color: white; transform: rotate(-3deg);">
                   <FolderOpen size={44} />
                 </div>
               </div>
             {/if}
           </div>
-          <div class="prose prose-sm max-w-none text-[--text-secondary] leading-relaxed">
-            {data.project.descripcion_larga}
+          <div class="project-description prose prose-sm max-w-none text-[--text-secondary] leading-relaxed">
+            {@html data.project.descripcion_larga}
           </div>
         </div>
         {#if (data.project.habilidades_requeridas ?? []).length > 0}

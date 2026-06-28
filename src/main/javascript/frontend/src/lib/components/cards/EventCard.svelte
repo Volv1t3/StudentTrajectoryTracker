@@ -52,7 +52,7 @@
   </div>
   <div class="p-6 flex flex-col flex-1">
     <h3 class="text-base font-bold text-[--text-primary] leading-snug">{event.nombre}</h3>
-    <p class="text-sm text-[--text-secondary] mt-1.5 line-clamp-3 flex-1">{event.descripcion_corta}</p>
+    <p class="text-sm text-[--text-secondary] mt-1.5 line-clamp-3 flex-1">{@html event.descripcion_corta}</p>
     <div class="flex flex-wrap gap-2 mt-4">
       <MetaChip icon="MapPin" value={event.modalidad} />
       {#if event.cuota_maxima}
