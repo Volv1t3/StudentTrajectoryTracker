@@ -254,7 +254,7 @@
   <title>Nueva vinculación — Admin DLAB</title>
 </svelte:head>
 
-<div class="p-6 md:p-8 max-w-7xl space-y-6">
+<div class="p-6 md:p-8 max-w-10xl space-y-6">
   <a href="/admin/linkage" class="mb-2 flex items-center gap-1.5 text-sm text-[--text-muted] transition-colors hover:text-[--text-secondary]">
     <ArrowLeft size={13} /> Vinculaciones
   </a>

@@ -2,5 +2,6 @@
 <project version="4">
   <component name="DataSourcePerFileMappings">
     <file url="file://$PROJECT_DIR$/src/main/javascript/backend/src/controllers/collaborator.controller.js" value="4b15e450-47b3-4176-a1ad-b668b3f7a3b0" />
+    <file url="file://$PROJECT_DIR$/src/main/javascript/backend/src/queries/application.queries.js" value="4b15e450-47b3-4176-a1ad-b668b3f7a3b0" />
   </component>
 </project>

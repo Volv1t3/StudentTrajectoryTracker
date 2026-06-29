@@ -577,6 +577,12 @@ export async function listAdmin({ status, isVisible, search, limit = 20, offset 
         FROM project_meeting_days pmd
         WHERE pmd.project_id = p.id
       ) AS meeting_days_summary,
+      (
+        SELECT COUNT(*)
+        FROM applications a
+        WHERE a.project_id = p.id
+          AND a.status COLLATE utf8mb4_unicode_ci IN ('Pendiente', 'En_Revisión')
+      ) AS pending_count,
       adm.id AS responsible_admin_id,
       CONCAT_WS(' ', adm.first_name, NULLIF(adm.middle_name, ''), adm.last_name, NULLIF(adm.second_last_name, '')) AS responsible_admin_name,
       adm.usfq_email AS responsible_admin_email

@@ -180,7 +180,7 @@
   eyebrow={data.project.categoria}
 >
   {#if data.projectAcceptsApplications}
-    <br><br>
+
     {#if !data.user}
       <Button
         variant='primary'
@@ -188,6 +188,19 @@
         size='lg'
         label='Necesitas Iniciar Sesión para Solicitar tu Vinculación al proyecto'
       />
+    {:else if data.hasLiveAssignmentForProject}
+      <div class="space-y-3">
+        <Button
+                variant='primary'
+                disabled
+                size='lg'
+                icon='Lock'
+                label='Ya estás vinculado a este proyecto'
+        />
+        <p class="text-sm text-[--color-text-muted-on-dark] max-w-xl mx-auto">
+          Ya tienes una vinculación activa o pausada con este proyecto.
+        </p>
+      </div>
     {:else if data.isProjectFull}
       <div class="space-y-3">
         <Button
@@ -202,19 +215,7 @@
           {#if data.project.max_collaborators !== null} de un total de {data.project.max_collaborators}{/if}.
         </p>
       </div>
-    {:else if data.hasLiveAssignmentForProject}
-      <div class="space-y-3">
-        <Button
-          variant='primary'
-          disabled
-          size='lg'
-          icon='Lock'
-          label='Ya estás vinculado a este proyecto'
-        />
-        <p class="text-sm text-[--color-text-muted-on-dark] max-w-xl mx-auto">
-          Ya tienes una vinculación activa o pausada con este proyecto.
-        </p>
-      </div>
+
     {:else if data.hasLiveApplicationForProject}
       <div class="space-y-3">
         <Button
@@ -229,7 +230,7 @@
         </p>
       </div>
     {:else if data.hasReachedProjectLimit}
-      <div class="space-y-3">
+      <div class="space-y-3 flex flex-col items-center">
         <Button
           variant='primary'
           disabled

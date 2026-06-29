@@ -105,13 +105,13 @@
             <StatusBadge status={app.estado} />
           </div>
           {#if app.mensaje_motivacion}
-            <p class="mt-3 text-xs text-[--text-secondary] bg-[--bg-secondary] rounded-lg px-3 py-2.5 leading-relaxed line-clamp-2">
-              {app.mensaje_motivacion}
+            <p class="mt-3 text-xs text-[--text-secondary] bg-[--bg-secondary] rounded-lg px-3 py-2.5 leading-relaxed ">
+              {@html app.mensaje_motivacion}
             </p>
           {/if}
           {#if app.feedback_admin}
             <p class="mt-2 text-xs bg-blue-50 border border-blue-100 text-blue-800 rounded-lg px-3 py-2.5">
-              <span class="font-semibold">Nota del equipo: </span>{app.feedback_admin}
+              <span class="font-semibold">Nota del equipo: </span>{@html app.feedback_admin}
             </p>
           {/if}
         </div>

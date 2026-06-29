@@ -4,7 +4,6 @@ import * as collaboratorQ from '../queries/collaborator.queries.js';
 import * as projectQ from '../queries/project.queries.js';
 import * as emailService from '../services/email.service.js';
 import * as analytics from '../services/analytics.service.js';
-import { env } from '../config/env.js';
 
 const errorResponse = (res, code, message, status) =>
   res.status(status).json({ success: false, error: { code, message } });
@@ -50,47 +49,35 @@ export async function submit(req, res, next) {
     const collaboratorDistinctId = analytics.distinctIdForCollaborator(req.user.sub);
     analytics.identify(collaboratorDistinctId, {
       distinct_role: 'collaborator',
-      major: d.major,
-      semester: d.current_university_year,
+      role: 'collaborator',
+      major: collaborator?.major || null,
+      semester: collaborator?.current_university_year || null,
     });
-    analytics.capture(collaboratorDistinctId, 'collaborator_signup_submitted', {
+    analytics.capture(collaboratorDistinctId, 'project_application_submitted', {
       source: 'backend',
       distinct_role: 'collaborator',
-      major: d.major,
-      semester: d.current_university_year,
-      intake_source: 'signup_form',
+      application_id: id,
+      collaborator_id: req.user.sub,
+      project_id: project?.id || project_id,
+      project_slug: project?.slug || null,
+      project_name: project?.title || null,
+      major: collaborator?.major || null,
+      semester: collaborator?.current_university_year || null,
     });
 
-    if (recipientEmails.length > 0) {
-      emailService.sendSignupReceived({
-        firstName: d.first_name,
-        lastName: d.last_name,
-        to: recipientEmails,
-        personalEmail: d.personal_email,
-        usfqEmail: d.usfq_email,
-        phoneNumber: d.phone_number,
-        dateOfBirth: d.date_of_birth,
-        major: d.major,
-        currentUniversityYear: d.current_university_year,
-        interestAreas,
-        tagNames: d.tag_names || [],
-        motivationDescription: d.motivation_description,
-        experienceDescription: d.experience_description || null,
-      });
-    }
-
     if (adminEmails.length > 0) {
-      emailService.sendAdminNewRegistration({
-        firstName: d.first_name,
-        lastName: d.last_name,
-        email: d.usfq_email,
-        major: d.major,
-        currentUniversityYear: d.current_university_year,
-        adminReviewUrl: reviewUrl,
+      emailService.sendAdminNewProjectApplication({
+        collaboratorFirstName: collaborator?.first_name || 'colaborador',
+        collaboratorLastName: collaborator?.last_name || '',
+        collaboratorEmail: collaborator?.usfq_email || collaborator?.personal_email || '',
+        projectTitle: project?.title || 'Proyecto',
+        projectSlug: project?.slug || null,
+        reasonForApplying: reason_for_applying,
+        adminReviewUrl: '/admin/applications',
       }, adminEmails);
     }
 
-    res.status(201).json({ message: 'Registro exitoso' });
+    res.status(201).json({ message: 'Solicitud enviada' });
   } catch (e) {
     next(e);
   }

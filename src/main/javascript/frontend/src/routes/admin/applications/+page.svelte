@@ -293,7 +293,7 @@
         <p class="text-sm text-[--text-muted] mb-4">Razón proporcionada por el colaborador al aplicar.</p>
         <div class="w-full h-0.5" style="background: var(--accent); opacity: 0.3;"></div>
       </div>
-      <div class="rounded-xl border border-[--border] bg-[--bg-secondary] p-4">
+      <div class="rounded-xl border border-[--border] bg-[--bg-secondary] p-4 max-h-48 overflow-y-auto">
         <p class="text-sm text-[--text-secondary] leading-relaxed whitespace-pre-wrap">{@html selectedApplication.reason_for_applying}</p>
       </div>
 
@@ -350,7 +350,7 @@
           {/if}
         </label>
         {#if isReadOnly}
-          <div class="min-h-[108px] w-full rounded-lg border border-[--border] bg-[--bg-secondary] px-3 py-2.5 text-sm text-[--text-secondary]">
+          <div class="min-h-[108px] max-h-48 overflow-y-auto w-full rounded-lg border border-[--border] bg-[--bg-secondary] px-3 py-2.5 text-sm text-[--text-secondary]">
             {#if reviewNotes}
               {@html reviewNotes}
             {:else}

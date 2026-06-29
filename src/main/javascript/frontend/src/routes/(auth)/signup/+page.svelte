@@ -63,7 +63,7 @@
   if (!email || email.length < 3) return '';
 
   // Regex: local part + "@" + any subdomain + ".usfq.edu.ec"
-  const regex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.usfq\.edu\.ec$/;
+  const regex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-.]*usfq\.edu\.ec$/;
 
   if (!regex.test(email)) {
     return 'Debe terminar en @*.usfq.edu.ec';
@@ -93,7 +93,7 @@
   function validateAnioGraduacion(value: string): string {
     if (!value) return 'Requerido';
     const num = parseInt(value, 10);
-    if (!Number.isFinite(num) || String(num) !== value.trim()) return 'Debe ser un número entero';
+    if (!Number.isFinite(num)) return 'Debe ser un número entero';
     if (num <= 2026) return 'Debe ser mayor a 2026';
     return '';
   }

@@ -2,7 +2,7 @@
   import { enhance } from '$app/forms';
   import { ChevronRight } from 'lucide-svelte';
   import Button from '$lib/components/ui/Button.svelte';
-  import FormField from '$lib/components/ui/FormField.svelte';
+  import RichTextField from '$lib/components/ui/RichTextField.svelte';
   import MetaChip from '$lib/components/ui/MetaChip.svelte';
 
   interface Project {
@@ -38,15 +38,17 @@
 
   let motivacionText = $state('');
 
+  const plainTextLength = $derived(motivacionText.replace(/<[^>]*>/g, '').trim().length);
+
   const motivacionError = $derived.by(() => {
-    if (!motivacionText) return '';
-    if (motivacionText.length < 100) {
-      return `Mínimo 100 caracteres (faltan ${100 - motivacionText.length})`;
+    if (!motivacionText || plainTextLength === 0) return '';
+    if (plainTextLength < 100) {
+      return `Mínimo 100 caracteres (faltan ${100 - plainTextLength})`;
     }
     return '';
   });
 
-  const canSubmit = $derived(motivacionText.length >= 100);
+  const canSubmit = $derived(plainTextLength >= 100);
 </script>
 
 <svelte:head>
@@ -128,16 +130,17 @@
 
     <form method="POST" action="?/applyToProject" use:enhance class="bg-surface rounded-xl border border-[--border] p-6 space-y-5">
       <input type="hidden" name="proyecto_id" value={data.project.id} />
-      <FormField
+      <RichTextField
         name="mensaje_motivacion"
-        type="textarea"
         label="¿Por qué quieres unirte a este proyecto?"
         required
         placeholder="Describe tu interés específico... (mínimo 100 caracteres)"
-        rows={5}
-        bind:value={motivacionText}
-        error={motivacionError || form?.errors?.mensaje_motivacion}
+        minHeightClass="min-h-[160px]"
+        onchange={(html) => { motivacionText = html; }}
       />
+      {#if motivacionError || form?.errors?.mensaje_motivacion}
+        <p class="text-xs text-red-500 mt-1">{motivacionError || form.errors.mensaje_motivacion}</p>
+      {/if}
       <div>
         <label class="flex items-start gap-3 cursor-pointer">
           <input type="checkbox" name="disponibilidad_confirmada" class="mt-0.5 h-4 w-4 rounded border-[--border] text-[--color-red] focus:ring-[--color-red]" />

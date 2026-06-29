@@ -118,7 +118,7 @@ type MeetingDay = {
                   {assignment.project_title}
                 </a>
               </h3>
-              <p class="mt-1 text-xs text-[--text-muted]">{assignment.project_short_description}</p>
+              <p class="mt-1 text-xs text-[--text-muted]">{@html assignment.project_short_description}</p>
             </div>
             <StatusBadge status={assignment.status} />
           </div>
@@ -157,7 +157,19 @@ type MeetingDay = {
 
           <div class="mt-4 rounded-xl border border-[--border] bg-[--bg-secondary] p-4">
             <p class="text-xs font-semibold text-[--text-primary] mb-3">Horario de reuniones del proyecto</p>
-            <AvailabilityPicker value={assignment.meeting_days} readonly />
+            <AvailabilityPicker value={assignment.meeting_days} readonly/>
+            {#if assignment.meeting_days.length > 0}
+              {#each assignment.meeting_days as day}
+                <div class="rounded-xl border border-[--border] bg-surface px-3 py-2 text-sm mt-4 space-y-2">
+                  <p class="font-medium text-[--text-primary]">{day.day_of_week}</p>
+                  <p class="text-xs text-[--text-muted]">
+                    {day.notes ? ` · ${day.notes}` : ''}
+                  </p>
+                </div>
+              {/each}
+            {:else}
+              <p class="text-sm text-[--text-muted]">Sin reuniones registradas para este proyecto.</p>
+            {/if}
           </div>
 
           <div class="mt-4 flex flex-wrap gap-1.5">

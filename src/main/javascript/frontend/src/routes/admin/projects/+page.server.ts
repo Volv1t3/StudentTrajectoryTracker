@@ -6,6 +6,7 @@ import type { Project, PaginatedResponse } from '$lib/types';
 
 type ProjectWithTags = Project & {
   categories?: Array<{ name?: string | null }> | null;
+  pending_count?: number | string | null;
 };
 
 export const load: PageServerLoad = async ({ cookies, url }) => {
@@ -18,7 +19,7 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
     categoria: (p.categories ?? []).map((category) => category.name).filter(Boolean).join(', ') || 'Sin categoría',
     estado: p.status,
     visible: p.is_visible,
-    pending_count: 0,
+    pending_count: Number(p.pending_count || 0),
   }));
   return {
     projects,

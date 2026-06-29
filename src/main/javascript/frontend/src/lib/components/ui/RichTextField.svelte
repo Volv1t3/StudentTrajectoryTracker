@@ -49,6 +49,7 @@
   let editorEl = $state<HTMLDivElement | undefined>();
   let editor = $state<Editor | undefined>();
   let html = $state(value ?? '');
+  let syncing = false;
 
   const editorClass = `tiptap-editor prose prose-sm max-w-none focus:outline-none ${minHeightClass} px-4 py-3 text-md text-[--text-primary]`;
 
@@ -58,7 +59,7 @@
       extensions: [
         StarterKit,
         Underline,
-        Placeholder.configure({ placeholder }),
+        Placeholder.configure({ placeholder: placeholder }),
         TaskList,
         TaskItem.configure({ nested: true }),
         Link.configure({ openOnClick: false }),
@@ -71,6 +72,7 @@
         },
       },
       onTransaction: ({ editor: currentEditor }) => {
+        if (syncing) return;
         html = currentEditor.getHTML();
         onchange?.(html);
       },
@@ -85,8 +87,10 @@
     if (!editor) return;
     const nextValue = value ?? '';
     if (nextValue === editor.getHTML()) return;
+    syncing = true;
     editor.commands.setContent(nextValue, { emitUpdate: false });
     html = editor.getHTML();
+    syncing = false;
   });
 </script>
 
@@ -177,7 +181,7 @@
   <div class="rounded-lg border border-[--border] overflow-hidden" style="background: var(--bg-surface);">
     {#if editor}
       <div class="flex flex-wrap items-center gap-0.5 px-2 py-1.5 border-b border-[--border] bg-[--bg-secondary]">
-        <button type="button" class="p-1.5 rounded hover:bg-[--border] transition-colors" class:bg-[--border]={editor.isActive('bold')} onclick={() => editor!.chain().focus().toggleBold().run()} aria-label="Negrita"><Bold size={16} /></button>
+        <button type="button" class="p-1.5 rounded hover:bg-[--primary] transition-colors" class:bg-[--border]={editor.isActive('bold')} onclick={() => editor!.chain().focus().toggleBold().run()} aria-label="Negrita"><Bold size={16} /></button>
         <button type="button" class="p-1.5 rounded hover:bg-[--border] transition-colors" class:bg-[--border]={editor.isActive('italic')} onclick={() => editor!.chain().focus().toggleItalic().run()} aria-label="Cursiva"><Italic size={16} /></button>
         <button type="button" class="p-1.5 rounded hover:bg-[--border] transition-colors" class:bg-[--border]={editor.isActive('underline')} onclick={() => editor!.chain().focus().toggleUnderline().run()} aria-label="Subrayado"><UnderlineIcon size={16} /></button>
         <button type="button" class="p-1.5 rounded hover:bg-[--border] transition-colors" class:bg-[--border]={editor.isActive('strike')} onclick={() => editor!.chain().focus().toggleStrike().run()} aria-label="Tachado"><Strikethrough size={16} /></button>

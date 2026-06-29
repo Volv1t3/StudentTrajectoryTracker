@@ -16,7 +16,7 @@
 
   function validateEmail(email: string): string {
     if (!email || email.length < 3) return '';
-    const regex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.usfq\.edu\.ec$/;
+    const regex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-.]*usfq\.edu\.ec$/;
     if (!regex.test(email)) {
       return 'Debe terminar en @*.usfq.edu.ec';
     }
