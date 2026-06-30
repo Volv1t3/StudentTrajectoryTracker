@@ -38,9 +38,10 @@ export async function refresh(req, res, next) {
   try {
     const token = req.cookies?.[COOKIE];
     if (!token) return errorResponse(res, 'NO_TOKEN', 'No refresh token', 401);
-    const stored = await authQ.findRefreshToken(hashToken(token));
+    const tokenHash = hashToken(token);
+    const stored = await authQ.findRefreshToken(tokenHash);
     if (!stored || stored.user_type !== 'Administrador') return errorResponse(res, 'INVALID_TOKEN', 'Token inválido', 401);
-    await authQ.revokeToken(stored.token_hash);
+    await authQ.revokeToken(tokenHash);
     const payload = { sub: stored.user_id, role: 'admin' };
     const newRefresh = signRefreshToken(payload, env.JWT_ADMIN_REFRESH_EXPIRES_IN);
     await authQ.storeRefreshToken({ userType: 'Administrador', userId: stored.user_id, tokenHash: hashToken(newRefresh), expiresAt: new Date(Date.now() + 86400000), userAgent: req.headers['user-agent'], ipAddress: req.ip });

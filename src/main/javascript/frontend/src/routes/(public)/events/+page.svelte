@@ -2,7 +2,9 @@
   import { capture } from '$lib/utils/posthog';
   import EventCard from '$lib/components/cards/EventCard.svelte';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
+  import PaginationNav from '$lib/components/ui/PaginationNav.svelte';
   import PageHero from '$lib/components/layout/PageHero.svelte';
+  import { page } from '$app/stores';
 
   interface Event {
     id: number;
@@ -16,7 +18,15 @@
   }
 
   interface Props {
-    data: { upcomingEvents: Event[]; pastEvents: Event[] };
+    data: {
+      upcomingEvents: Event[];
+      pastEvents: Event[];
+      meta: {
+        page: number;
+        limit: number;
+        total: number;
+      };
+    };
   }
 
   let { data }: Props = $props();
@@ -31,6 +41,13 @@
       source: 'frontend'
     });
   });
+
+  function buildPageHref(nextPage: number) {
+    const params = new URLSearchParams($page.url.searchParams);
+    params.set('page', String(nextPage));
+    const query = params.toString();
+    return query ? `/events?${query}` : '/events';
+  }
 </script>
 
 <svelte:head>
@@ -58,6 +75,8 @@
         description="Vuelve pronto para ver nuevas actividades de DLAB."
       />
     {/if}
+
+    <PaginationNav meta={data.meta} buildHref={buildPageHref} label="Eventos" />
   </div>
 </section>
 

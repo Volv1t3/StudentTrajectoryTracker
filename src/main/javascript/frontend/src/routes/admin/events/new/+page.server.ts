@@ -3,6 +3,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { apiGet, apiPost, apiPut } from '$lib/server/api';
 import { getAdminAccessToken } from '$lib/server/auth';
 import { loadAdministratorOptions } from '$lib/server/admin-administrators';
+import { validateBucketUpload } from '$lib/server/upload-limits';
 import type { Tag } from '$lib/types';
 import {
   buildEventWarningRedirect,
@@ -54,6 +55,14 @@ export const actions: Actions = {
     const capacityRaw = form.get('cupo_maximo')?.toString().trim();
     const bannerImageFile = form.get('banner_image_file');
     const posterImageFile = form.get('poster_image_file');
+    const bannerUploadError = validateBucketUpload(bannerImageFile, 'El banner');
+    if (bannerUploadError) {
+      return fail(400, { error: bannerUploadError });
+    }
+    const posterUploadError = validateBucketUpload(posterImageFile, 'El afiche');
+    if (posterUploadError) {
+      return fail(400, { error: posterUploadError });
+    }
     const bannerImageUrl = toNullable(form.get('banner_image_url'));
     const posterImageUrl = toNullable(form.get('poster_image_url'));
 

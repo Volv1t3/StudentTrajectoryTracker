@@ -3,7 +3,9 @@
   import { capture } from '$lib/utils/posthog';
   import ProjectCard from '$lib/components/cards/ProjectCard.svelte';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
+  import PaginationNav from '$lib/components/ui/PaginationNav.svelte';
   import PageHero from '$lib/components/layout/PageHero.svelte';
+  import { page } from '$app/stores';
 
   interface Project {
     id: number;
@@ -30,6 +32,11 @@
         status: string;
         search: string;
         page: string;
+      };
+      meta: {
+        page: number;
+        limit: number;
+        total: number;
       };
     };
   }
@@ -79,6 +86,13 @@
     const matchesStatus = !selectedStatus || p.estado === selectedStatus;
     return matchesSearch && matchesCategory && matchesModalidad && matchesStatus;
   }));
+
+  function buildPageHref(nextPage: number) {
+    const params = new URLSearchParams($page.url.searchParams);
+    params.set('page', String(nextPage));
+    const query = params.toString();
+    return query ? `/projects?${query}` : '/projects';
+  }
 </script>
 
 <svelte:head>
@@ -133,6 +147,8 @@
           </div>
         {/each}
       </div>
+
+      <PaginationNav meta={data.meta} buildHref={buildPageHref} label="Proyectos" />
     {:else}
       <EmptyState
         icon="Search"

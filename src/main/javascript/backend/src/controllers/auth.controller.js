@@ -159,9 +159,12 @@ export async function refresh(req, res, next) {
   try {
     const token = req.cookies?.[COOKIE];
     if (!token) return errorResponse(res, 'NO_TOKEN', 'No refresh token', 401);
-    const stored = await authQ.findRefreshToken(hashToken(token));
-    if (!stored) return errorResponse(res, 'INVALID_TOKEN', 'Token inválido', 401);
-    await authQ.revokeToken(stored.token_hash);
+    const tokenHash = hashToken(token);
+    const stored = await authQ.findRefreshToken(tokenHash);
+    if (!stored || stored.user_type !== 'Colaborador') {
+      return errorResponse(res, 'INVALID_TOKEN', 'Token inválido', 401);
+    }
+    await authQ.revokeToken(tokenHash);
     const payload = { sub: stored.user_id, role: 'collaborator' };
     const newRefresh = signRefreshToken(payload);
     await authQ.storeRefreshToken({ userType: 'Colaborador', userId: stored.user_id, tokenHash: hashToken(newRefresh), expiresAt: new Date(Date.now() + 7 * 86400000), userAgent: req.headers['user-agent'], ipAddress: req.ip });
