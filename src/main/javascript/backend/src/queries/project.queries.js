@@ -5,6 +5,7 @@ import * as tagQ from './tag.queries.js';
 import * as mediaQ from './media.queries.js';
 import { normalizeTagName } from '../services/tag.service.js';
 
+
 function mapProjectError(error) {
   const message = String(error?.sqlMessage || error?.message || '');
 
