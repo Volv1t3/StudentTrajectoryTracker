@@ -48,6 +48,11 @@ export function clearAdminSession(cookies: Cookies): void {
   cookies.delete(ADMIN_REFRESH_COOKIE, { path: ADMIN_REFRESH_PATH });
 }
 
+/** Clear admin access cookie only */
+export function clearAdminAccessSession(cookies: Cookies): void {
+  cookies.delete(ADMIN_ACCESS_COOKIE, { path: '/' });
+}
+
 /** Clear the full collaborator session: access + refresh */
 export function clearCollaboratorSession(cookies: Cookies): void {
   cookies.delete(ACCESS_COOKIE, { path: '/' });

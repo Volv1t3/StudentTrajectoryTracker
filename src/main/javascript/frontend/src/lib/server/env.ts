@@ -74,7 +74,6 @@ export function envRequired(key: string): string {
 export const SUPABASE_URL = () => envRequired('SUPABASE_URL');
 export const SUPABASE_PUBLISHABLE_KEY = () => envRequired('SUPABASE_PUBLISHABLE_KEY');
 export const RESEND_API_KEY = () => envRequired('RESEND_API_KEY');
-export const JWT_SECRET = () => envRequired('JWT_SECRET');
 export const SITE_URL = () => env('SITE_URL') || 'http://localhost:5173';
 export const PUBLIC_POSTHOG_KEY = () => env('PUBLIC_POSTHOG_KEY');
 export const PUBLIC_POSTHOG_HOST = () => env('PUBLIC_POSTHOG_HOST') || 'https://us.i.posthog.com';

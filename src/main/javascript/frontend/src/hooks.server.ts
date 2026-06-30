@@ -1,5 +1,14 @@
-import type { Handle, HandleServerError } from '@sveltejs/kit';
-import { getUserAccessToken, getAdminAccessToken, decodeAccessToken, clearUserSession, clearAdminSession, setUserSession } from '$lib/server/auth';
+import type { Cookies, Handle, HandleServerError } from '@sveltejs/kit';
+import {
+  getUserAccessToken,
+  getAdminAccessToken,
+  decodeAccessToken,
+  clearUserSession,
+  clearAdminSession,
+  clearAdminAccessSession,
+  setUserSession,
+  setAdminSession
+} from '$lib/server/auth';
 import { env } from '$lib/server/env';
 
 const API_BASE = () => env('API_BASE_URL') || 'http://localhost:34761';
@@ -36,7 +45,23 @@ function derivePostHogProxyHosts(configuredHost: string) {
   }
 }
 
-async function attemptRefreshInHook(cookies: import('@sveltejs/kit').Cookies): Promise<string | null> {
+function mirrorRefreshCookie(cookies: Cookies, response: Response, name: string, maxAge: number): void {
+  for (const sc of response.headers.getSetCookie?.() ?? []) {
+    const raw = sc.split(';')[0];
+    const [cookieName, ...rest] = raw.split('=');
+    if (cookieName.trim() === name) {
+      cookies.set(name, rest.join('='), {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'strict',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge,
+      });
+    }
+  }
+}
+
+async function attemptCollaboratorRefreshInHook(cookies: Cookies): Promise<string | null> {
   const refreshToken = cookies.get('dlab_refresh');
   if (!refreshToken) return null;
 
@@ -53,21 +78,32 @@ async function attemptRefreshInHook(cookies: import('@sveltejs/kit').Cookies): P
 
     const data = await res.json();
     setUserSession(cookies, data.access_token);
+    mirrorRefreshCookie(cookies, res, 'dlab_refresh', 7 * 24 * 60 * 60);
 
-    // Mirror rotated refresh cookie
-    for (const sc of res.headers.getSetCookie?.() ?? []) {
-      const raw = sc.split(';')[0];
-      const [name, ...rest] = raw.split('=');
-      if (name.trim() === 'dlab_refresh') {
-        cookies.set('dlab_refresh', rest.join('='), {
-          path: '/',
-          httpOnly: true,
-          sameSite: 'strict',
-          secure: process.env.NODE_ENV === 'production',
-          maxAge: 7 * 24 * 60 * 60,
-        });
-      }
-    }
+    return data.access_token;
+  } catch {
+    return null;
+  }
+}
+
+async function attemptAdminRefreshInHook(cookies: Cookies): Promise<string | null> {
+  const refreshToken = cookies.get('dlab_admin_refresh');
+  if (!refreshToken) return null;
+
+  try {
+    const res = await fetch(`${API_BASE()}/api/admin/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': `dlab_admin_refresh=${refreshToken}`,
+      },
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    setAdminSession(cookies, data.access_token);
+    mirrorRefreshCookie(cookies, res, 'dlab_admin_refresh', 24 * 60 * 60);
 
     return data.access_token;
   } catch {
@@ -84,23 +120,31 @@ export const handle: Handle = async ({ event, resolve }) => {
   event.locals.accessToken = null;
 
   if (isAdminRoute) {
-    if (adminToken) {
-      const payload = decodeAccessToken(adminToken);
-      if (payload) {
-        event.locals.user = { id: payload.sub, role: payload.role };
-        event.locals.accessToken = adminToken;
-      } else {
+    const payload = adminToken ? decodeAccessToken(adminToken) : null;
+    if (payload) {
+      event.locals.user = { id: payload.sub, role: payload.role };
+      event.locals.accessToken = adminToken;
+    } else {
+      if (adminToken) clearAdminAccessSession(event.cookies);
+      const newToken = await attemptAdminRefreshInHook(event.cookies);
+      if (newToken) {
+        const newPayload = decodeAccessToken(newToken);
+        if (newPayload) {
+          event.locals.user = { id: newPayload.sub, role: newPayload.role };
+          event.locals.accessToken = newToken;
+        }
+      } else if (adminToken || event.cookies.get('dlab_admin_refresh')) {
         clearAdminSession(event.cookies);
       }
     }
-  } else if (userToken) {
-    const payload = decodeAccessToken(userToken);
+  } else if (userToken || event.cookies.get('dlab_refresh')) {
+    const payload = userToken ? decodeAccessToken(userToken) : null;
     if (payload) {
       event.locals.user = { id: payload.sub, role: payload.role };
       event.locals.accessToken = userToken;
     } else {
-      clearUserSession(event.cookies);
-      const newToken = await attemptRefreshInHook(event.cookies);
+      if (userToken) clearUserSession(event.cookies);
+      const newToken = await attemptCollaboratorRefreshInHook(event.cookies);
       if (newToken) {
         const newPayload = decodeAccessToken(newToken);
         if (newPayload) {
@@ -108,6 +152,7 @@ export const handle: Handle = async ({ event, resolve }) => {
           event.locals.accessToken = newToken;
         }
       } else {
+        clearUserSession(event.cookies);
         event.cookies.delete('dlab_refresh', { path: '/' });
       }
     }
