@@ -161,7 +161,7 @@ export async function listByCollaborator(collaboratorId, status) {
 
 export async function withdraw(id, collaboratorId) {
   const [result] = await pool.execute(
-    "UPDATE applications SET status='Retirada' WHERE id=? AND collaborator_id=? AND status='Pendiente'",
+    "UPDATE applications SET status='Retirada' WHERE id=? AND collaborator_id=? AND status IN ('Pendiente','En_Revisión')",
     [id, collaboratorId]
   );
   return result.affectedRows > 0;

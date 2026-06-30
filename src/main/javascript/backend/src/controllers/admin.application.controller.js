@@ -117,8 +117,6 @@ export async function updateStatus(req, res, next) {
          emailService.sendCollaboratorApplicationInReview(basePayload);
       } else if (status === 'Rechazada') {
          emailService.sendCollaboratorApplicationRejected(basePayload);
-      } else if (status === 'Retirada') {
-         emailService.sendCollaboratorApplicationWithdrawn(basePayload);
       }
     }
 

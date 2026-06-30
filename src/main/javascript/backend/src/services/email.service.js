@@ -202,7 +202,7 @@ export const sendPasswordReset = ({ firstName, email, resetUrl, expiryMinutes })
     closing: 'Si no solicitaste este cambio, puedes ignorar este correo.',
   });
 
-export const sendContactInquiry = ({ name, email, bannerCode, subject, message }, adminEmails) =>
+export const sendContactInquiry = ({ name, email, subject, message }, adminEmails) =>
   sendStandardAdminEmail({
     emails: adminEmails,
     subject: `Consulta de contacto — ${String(subject).replace(/\r?\n/g, ' ').trim()}`,
@@ -210,8 +210,7 @@ export const sendContactInquiry = ({ name, email, bannerCode, subject, message }
     highlightedValue: name,
     intro: 'Se recibió una nueva consulta desde el formulario de contacto.',
     details: [
-      { label: 'Correo USFQ', value: email },
-      { label: 'Código banner', value: bannerCode },
+      { label: 'Correo ', value: email },
       { label: 'Asunto', value: subject },
       { label: 'Mensaje', value: message },
     ],

@@ -58,8 +58,6 @@
   let approveForm = $state<HTMLFormElement | null>(null);
   let rejectForm = $state<HTMLFormElement | null>(null);
   let reviewForm = $state<HTMLFormElement | null>(null);
-  let withdrawForm = $state<HTMLFormElement | null>(null);
-
   const selectedApplication = $derived(
     data.applications.find((application) => application.id === selectedApplicationId) ?? null,
   );
@@ -114,17 +112,11 @@
     rejectForm?.requestSubmit();
   }
 
-  function submitWithdrawal() {
-    modalError = '';
-    withdrawForm?.requestSubmit();
-  }
-
   const isApproved = $derived(selectedApplication?.status === 'Aprobada');
   const isPending = $derived(selectedApplication?.status === 'Pendiente');
   const isInReview = $derived(selectedApplication?.status === 'En_Revisión');
   const canApprove = $derived(Boolean(isPending || isInReview));
   const canReject = $derived(Boolean(isPending || isInReview));
-  const canWithdraw = $derived(Boolean(isPending || isInReview));
   const canSetInReview = $derived(Boolean(isPending));
   const isReadOnly = $derived(
     !selectedApplication || ['Aprobada', 'Rechazada', 'Retirada'].includes(selectedApplication.status),
@@ -379,9 +371,6 @@
         {#if canSetInReview}
           <Button variant="primary" label="Marcar en revisión" onclick={submitInReview} />
         {/if}
-        {#if canWithdraw}
-          <Button variant="primary" label="Retirar" icon="Undo2" onclick={submitWithdrawal} />
-        {/if}
         {#if canReject}
           <Button variant="primary" label="Rechazar" icon="XCircle" onclick={submitRejection} />
         {/if}
@@ -400,12 +389,6 @@
         <input type="hidden" name="application_id" value={selectedApplication.id} />
         <input type="hidden" name="admin_notes" value={reviewNotes} />
       </form>
-
-      <form bind:this={withdrawForm} method="POST" action="?/withdraw" class="hidden">
-        <input type="hidden" name="application_id" value={selectedApplication.id} />
-        <input type="hidden" name="admin_notes" value={reviewNotes} />
-      </form>
-
       <form bind:this={approveForm} method="POST" action="?/approve" class="hidden">
         <input type="hidden" name="application_id" value={selectedApplication.id} />
         <input type="hidden" name="admin_notes" value={reviewNotes} />

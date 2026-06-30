@@ -119,8 +119,7 @@
           {/if}
           <form method="POST" action="?/submitContact" use:enhance class="space-y-4">
             <FormField name="nombre" label="Ingresa tu Nombre" required placeholder="Tu nombre completo" error={form?.errors?.nombre}/>
-            <FormField name="correo" type="email" label="Ingresa tu correo electrónico de la USFQ" required placeholder="tu@estud.usfq.edu.ec" error={form?.errors?.correo} />
-            <FormField name="codigo_banner" type="text" label="Ingresa tu código banner de la USFQ" required placeholder="00123456" error={form?.errors?.codigo_banner}/>
+            <FormField name="correo" type="email" label="Ingresa tu correo electrónico" required placeholder="tu@correo.com" error={form?.errors?.correo} />
             <FormField name="asunto" label="Ingresa el Asunto de tu mensaje" required placeholder="¿En qué podemos ayudarte?" error={form?.errors?.asunto} />
             <RichTextField name="mensaje" label="Escribe tu mensaje" placeholder="Escribe tu mensaje..." required minHeightClass="min-h-[120px]" />
             <Button type="submit" variant="primary" fullWidth label="Enviar mensaje" />

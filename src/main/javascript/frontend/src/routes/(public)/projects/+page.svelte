@@ -21,25 +21,37 @@
   }
 
   interface Props {
-    data: { projects: Project[]; categories: string[] };
+    data: {
+      projects: Project[];
+      categories: string[];
+      statusOptions: string[];
+      selectedFilters: {
+        tag: string;
+        status: string;
+        search: string;
+        page: string;
+      };
+    };
   }
 
   let { data }: Props = $props();
 
-  let searchQuery = $state('');
-  let selectedCategory = $state('');
+  let searchQuery = $state(data.selectedFilters.search || '');
+  let selectedCategory = $state(data.selectedFilters.tag || '');
   let selectedModalidad = $state('');
+  let selectedStatus = $state(data.selectedFilters.status || '');
 
   let searchTimeout: ReturnType<typeof setTimeout>;
 
   function handleSearch() {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
-      if (searchQuery || selectedCategory || selectedModalidad) {
+      if (searchQuery || selectedCategory || selectedModalidad || selectedStatus) {
         capture('project_list_filtered', {
           query: searchQuery,
           category: selectedCategory || null,
           modality: selectedModalidad || null,
+          status: selectedStatus || null,
           results_count: filteredProjects.length,
           route: '/projects',
           route_group: 'public',
@@ -64,7 +76,8 @@
     const matchesSearch = !searchQuery || p.nombre.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = !selectedCategory || (p.categorias ?? []).includes(selectedCategory);
     const matchesModalidad = !selectedModalidad || p.modalidad === selectedModalidad;
-    return matchesSearch && matchesCategory && matchesModalidad;
+    const matchesStatus = !selectedStatus || p.estado === selectedStatus;
+    return matchesSearch && matchesCategory && matchesModalidad && matchesStatus;
   }));
 </script>
 
@@ -98,6 +111,12 @@
           <option value={cat}>{cat}</option>
         {/each}
       </select>
+      <select bind:value={selectedStatus} onchange={handleSearch} class="text-sm rounded-lg border border-[--border] bg-surface px-3 py-2.5 focus:ring-2 focus:ring-[--color-red] focus:outline-none cursor-pointer">
+        <option value="">Todos los estados</option>
+        {#each data.statusOptions as status}
+          <option value={status}>{status.replace('_', ' ')}</option>
+        {/each}
+      </select>
       <select bind:value={selectedModalidad} onchange={handleSearch} class="text-sm rounded-lg border border-[--border] bg-surface px-3 py-2.5 focus:ring-2 focus:ring-[--color-red] focus:outline-none cursor-pointer">
         <option value="">Todas las modalidades</option>
         <option value="Presencial">Presencial</option>
@@ -120,7 +139,7 @@
         title="Sin resultados"
         description="No encontramos proyectos con esos filtros. Prueba con otros criterios."
         actionLabel="Limpiar filtros"
-        actionOnClick={() => { searchQuery = ''; selectedCategory = ''; selectedModalidad = ''; }}
+        actionOnClick={() => { searchQuery = ''; selectedCategory = ''; selectedStatus = ''; selectedModalidad = ''; }}
       />
     {/if}
   </div>

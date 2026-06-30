@@ -3,6 +3,7 @@
   import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
   import MetaChip from '$lib/components/ui/MetaChip.svelte';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
+  import Button from '$lib/components/ui/Button.svelte';
 
   interface Application {
     id: number;
@@ -18,9 +19,12 @@
 
   interface Props {
     data: { applications: Application[] };
+    form?: {
+      error?: string;
+    };
   }
 
-  let { data }: Props = $props();
+  let { data, form }: Props = $props();
 
   let statusFilter = $state('');
   let categoryFilter = $state('');
@@ -48,6 +52,10 @@
   function formatDate(dateStr: string): string {
     return new Date(dateStr).toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' });
   }
+
+  function canWithdraw(app: Application): boolean {
+    return ['Pendiente', 'En_Revisión'].includes(app.estado);
+  }
 </script>
 
 <svelte:head>
@@ -59,6 +67,12 @@
     <h1 class="text-2xl font-bold text-[--text-primary]">Mis solicitudes</h1>
     <p class="text-[--text-muted] text-sm mt-0.5">Estado de tus aplicaciones a proyectos DLAB</p>
   </header>
+
+  {#if form?.error}
+    <div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {form.error}
+    </div>
+  {/if}
 
   {#if applications.length > 0}
     <div class="flex flex-wrap gap-3 mb-6">
@@ -113,6 +127,20 @@
             <p class="mt-2 text-xs bg-blue-50 border border-blue-100 text-blue-800 rounded-lg px-3 py-2.5">
               <span class="font-semibold">Nota del equipo: </span>{@html app.feedback_admin}
             </p>
+          {/if}
+          {#if canWithdraw(app)}
+            <div class="mt-4 flex justify-end">
+              <form method="POST" action="?/withdraw">
+                <input type="hidden" name="id" value={app.id} />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="submit"
+                  icon="Undo2"
+                  label="Retirar solicitud"
+                />
+              </form>
+            </div>
           {/if}
         </div>
       {/each}

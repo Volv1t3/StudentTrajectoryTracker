@@ -40,22 +40,16 @@ export const actions: Actions = {
 
     const name = String(form.get('nombre') || '').trim();
     const email = normalizeEmail(String(form.get('correo') || ''));
-    const bannerCode = String(form.get('codigo_banner') || '').trim();
     const subject = String(form.get('asunto') || '').trim();
     const message = String(form.get('mensaje') || '').trim();
-
     if (!name) return fail(400, { errors: { nombre: 'El nombre es requerido' } });
     if (!email) return fail(400, { errors: { correo: 'El correo es requerido' } });
-    if (!isUsfqEmail(email)) return fail(400, { errors: { correo: 'Debes usar un correo institucional USFQ' } });
-    if (!bannerCode) return fail(400, { errors: { codigo_banner: 'El código banner es requerido' } });
-    if (!/^\d{6,12}$/.test(bannerCode)) return fail(400, { errors: { codigo_banner: 'El código banner debe tener entre 6 y 12 dígitos' } });
     if (!subject) return fail(400, { errors: { asunto: 'El asunto es requerido' } });
     if (!message) return fail(400, { errors: { mensaje: 'El mensaje es requerido' } });
 
     const res = await apiPost('/api/public/contact', {
       name,
       email,
-      banner_code: bannerCode,
       subject,
       message
     });

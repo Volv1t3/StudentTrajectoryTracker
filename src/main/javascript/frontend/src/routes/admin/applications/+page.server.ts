@@ -154,20 +154,6 @@ export const actions: Actions = {
     if (!res.ok) return fail(res.status, { error: getErrorMessage(res.data, 'No se pudo rechazar la solicitud') });
     return { success: true };
   },
-
-  withdraw: async ({ request, cookies }) => {
-    const token = getAdminAccessToken(cookies)!;
-    const form = await request.formData();
-    const id = String(form.get('application_id') || '');
-    const admin_notes = String(form.get('admin_notes') || '').trim();
-    const body: Record<string, string> = { status: 'Retirada' };
-    if (admin_notes) body.admin_notes = admin_notes;
-
-    const res = await apiPatch(`/api/admin/applications/${id}/status`, body, token);
-    if (!res.ok) return fail(res.status, { error: getErrorMessage(res.data, 'No se pudo retirar la solicitud') });
-    return { success: true };
-  },
-
   setInReview: async ({ request, cookies }) => {
     const token = getAdminAccessToken(cookies)!;
     const form = await request.formData();

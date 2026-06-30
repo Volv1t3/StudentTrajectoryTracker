@@ -257,7 +257,7 @@
         disabled
         size='lg'
         icon='Lock'
-        label= 'El Estado actual del Proyecto no permite recibir Solicitudes de Viculación'
+        label='Este proyecto no acepta solicitudes en su estado actual'
       />
   {/if}
 </PageHero>

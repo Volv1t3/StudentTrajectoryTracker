@@ -6,7 +6,7 @@ export const submitApplicationSchema = z.object({
 });
 
 export const reviewApplicationSchema = z.object({
-  status: z.enum(['En_Revisión', 'Aprobada', 'Rechazada', 'Retirada']),
+  status: z.enum(['En_Revisión', 'Aprobada', 'Rechazada']),
   admin_notes: z.string().max(2000).optional(),
   role_in_project: z.string().optional(),
 }).superRefine((data, ctx) => {

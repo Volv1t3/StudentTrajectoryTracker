@@ -15,7 +15,6 @@ export async function submitInquiry(req, res, next) {
       {
         name: req.validated.name,
         email: req.validated.email,
-        bannerCode: req.validated.banner_code,
         subject: req.validated.subject,
         message: req.validated.message,
       },

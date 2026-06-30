@@ -1449,7 +1449,7 @@ END$$
 DELIMITER ;
 -- ============================================================================
 -- Procedure: sp_application_set_status
--- Description: Moves an application to en_revision, rechazada, or retirada
+-- Description: Moves an application to en_revision or rechazada
 --              with transition validation. Does NOT handle approval.
 -- ============================================================================
 
@@ -1482,8 +1482,8 @@ BEGIN
   END IF;
 
   SET v_allowed = CASE
-    WHEN v_current_status COLLATE utf8mb4_unicode_ci = 'Pendiente'   AND p_new_status COLLATE utf8mb4_unicode_ci IN ('En_Revisión','Rechazada','Retirada') THEN 1
-    WHEN v_current_status COLLATE utf8mb4_unicode_ci = 'En_Revisión' AND p_new_status COLLATE utf8mb4_unicode_ci IN ('Rechazada','Retirada')               THEN 1
+    WHEN v_current_status COLLATE utf8mb4_unicode_ci = 'Pendiente'   AND p_new_status COLLATE utf8mb4_unicode_ci IN ('En_Revisión','Rechazada') THEN 1
+    WHEN v_current_status COLLATE utf8mb4_unicode_ci = 'En_Revisión' AND p_new_status COLLATE utf8mb4_unicode_ci IN ('Rechazada')               THEN 1
     ELSE 0
   END;
 
@@ -2886,8 +2886,7 @@ SELECT
     WHERE pmd.project_id = p.id
   ) AS meeting_days_summary
 FROM projects p
-WHERE p.is_visible = TRUE
-  AND p.status COLLATE utf8mb4_unicode_ci NOT IN ('Archivado');
+WHERE p.is_visible = TRUE;
 -- ============================================================================
 -- View: vw_public_events
 -- Description: Public-facing events with tags aggregated.

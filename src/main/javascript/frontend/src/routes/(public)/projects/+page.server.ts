@@ -3,6 +3,8 @@ import { apiGet } from '$lib/server/api';
 import type { ProjectPublic, PaginatedResponse } from '$lib/types/proyecto';
 import type { Tag } from '$lib/types/tag';
 
+const PROJECT_STATUS_OPTIONS = ['Activo', 'En_Pausa', 'Completado', 'Archivado', 'Próximo'] as const;
+
 function parseLegacySkillText(value?: string | null) {
   return (value || '')
     .split(/[,;\n]/)
@@ -65,5 +67,12 @@ export const load: PageServerLoad = async ({ url }) => {
     categories: tagsRes.ok ? tagsRes.data.map((tag) => tag.name) : [],
     meta: projectsRes.ok ? projectsRes.data.meta : { page: 1, limit: 20, total: 0 },
     tags: tagsRes.ok ? tagsRes.data : [],
+    statusOptions: [...PROJECT_STATUS_OPTIONS],
+    selectedFilters: {
+      tag,
+      status,
+      search,
+      page,
+    },
   };
 };
