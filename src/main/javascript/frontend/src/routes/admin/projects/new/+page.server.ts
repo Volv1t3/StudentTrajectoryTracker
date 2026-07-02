@@ -89,9 +89,8 @@ export const actions: Actions = {
     const headerImageUrl = form.get('header_image_url')?.toString().trim() || null;
     const uploadError = validateBucketUpload(headerImageFile, 'La imagen principal');
     if (uploadError) {
-      return fail(400, { error: uploadError, apiError: { code: 'ERR_UPLOAD', message: uploadError } });
+      return fail(400, { error: uploadError });
     }
-
     const parseJson = <T>(value: FormDataEntryValue | null): T => {
       if (!value) return [] as T;
       try { return JSON.parse(value.toString()) as T; } catch { return [] as T; }
@@ -124,13 +123,8 @@ export const actions: Actions = {
 
     const res = await apiPost('/api/admin/projects', body, token);
     if (!res.ok) {
-      const apiError = (res.data as any)?.error ?? null;
-      const msg = apiError?.message || 'Error al crear el proyecto';
-      // Forward the structured envelope so the client can run
-      // extractApiError/mapBackendFields and bind field-level errors back to
-      // the matching controls. We keep the legacy `error` field for any
-      // older listener.
-      return fail(res.status, { error: msg, apiError });
+      const msg = (res.data as any)?.error?.message || 'Error al crear el proyecto';
+      return fail(res.status, { error: msg });
     }
 
     const projectId = Number((res.data as any)?.id);

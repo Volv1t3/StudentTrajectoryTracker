@@ -13,70 +13,79 @@
 
   let { meta, buildHref, label = 'Resultados' }: Props = $props();
 
-  const currentPage = $derived(Math.max(1, Number(meta?.page || 1)));
-  const totalPages = $derived(Math.max(1, Math.ceil(Number(meta?.total || 0) / Math.max(1, Number(meta?.limit || 1)))));
-  const startItem = $derived(meta.total === 0 ? 0 : (currentPage - 1) * meta.limit + 1);
-  const endItem = $derived(meta.total === 0 ? 0 : Math.min(meta.total, currentPage * meta.limit));
+  const currentPage = $derived(Math.max(1, Number(meta?.page) || 1));
+  const pageSize = $derived(Math.max(1, Number(meta?.limit) || 1));
+  const totalItems = $derived(Math.max(0, Number(meta?.total) || 0));
+  const totalPages = $derived(Math.max(1, Math.ceil(totalItems / pageSize)));
+  const hasPrevious = $derived(currentPage > 1);
+  const hasNext = $derived(currentPage < totalPages);
+  const startItem = $derived(totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1);
+  const endItem = $derived(Math.min(currentPage * pageSize, totalItems));
 
-  function getVisiblePages(page: number, pages: number): Array<number | 'ellipsis'> {
-    if (pages <= 7) return Array.from({ length: pages }, (_, index) => index + 1);
+  const visiblePages = $derived.by(() => {
+    const pages = new Set<number>([1, totalPages]);
 
-    if (page <= 4) return [1, 2, 3, 4, 5, 'ellipsis', pages];
-    if (page >= pages - 3) return [1, 'ellipsis', pages - 4, pages - 3, pages - 2, pages - 1, pages];
-    return [1, 'ellipsis', page - 1, page, page + 1, 'ellipsis', pages];
+    for (let page = currentPage - 1; page <= currentPage + 1; page += 1) {
+      if (page >= 1 && page <= totalPages) pages.add(page);
+    }
+
+    return [...pages].sort((left, right) => left - right);
+  });
+
+  function shouldShowGap(current: number, previous?: number) {
+    return previous !== undefined && current - previous > 1;
   }
-
-  const visiblePages = $derived(getVisiblePages(currentPage, totalPages));
 </script>
 
-{#if meta.total > 0 && totalPages > 1}
-  <nav class="mt-10 flex flex-col gap-4 border-t border-[--border] pt-6 sm:flex-row sm:items-center sm:justify-between" aria-label={`Paginación de ${label.toLowerCase()}`}>
+{#if totalItems > pageSize}
+  <nav class="mt-8 flex flex-col gap-4 rounded-xl border border-[--border] bg-surface px-4 py-4 sm:flex-row sm:items-center sm:justify-between" aria-label={`Paginación de ${label.toLowerCase()}`}>
     <p class="text-sm text-[--text-muted]">
-      {label} {startItem}-{endItem} de {meta.total}
+      {label}: {startItem}-{endItem} de {totalItems}
     </p>
 
     <div class="flex flex-wrap items-center gap-2">
-      <a
-        href={currentPage > 1 ? buildHref(currentPage - 1) : undefined}
-        aria-disabled={currentPage <= 1}
-        class={`rounded-lg border px-3 py-2 text-sm transition-colors ${
-          currentPage <= 1
-            ? 'pointer-events-none border-[--border] text-[--text-muted] opacity-50'
-            : 'border-[--border] bg-surface text-[--text-primary] hover:border-[--color-red] hover:text-[--color-red]'
-        }`}
-      >
-        Anterior
-      </a>
+      {#if hasPrevious}
+        <a
+          href={buildHref(currentPage - 1)}
+          class="inline-flex items-center rounded-lg border border-[--border] px-3 py-2 text-sm text-[--text-secondary] transition-colors hover:bg-[--bg-secondary]"
+          aria-label={`Página anterior de ${label.toLowerCase()}`}
+        >
+          Anterior
+        </a>
+      {/if}
 
-      {#each visiblePages as pageItem}
-        {#if pageItem === 'ellipsis'}
-          <span class="px-2 text-sm text-[--text-muted]">…</span>
+      {#each visiblePages as pageNumber, index}
+        {#if shouldShowGap(pageNumber, visiblePages[index - 1])}
+          <span class="px-1 text-sm text-[--text-muted]" aria-hidden="true">…</span>
+        {/if}
+
+        {#if pageNumber === currentPage}
+          <span
+            class="inline-flex min-w-10 items-center justify-center rounded-lg border border-[--accent] bg-[--accent] px-3 py-2 text-sm font-semibold text-white"
+            aria-current="page"
+          >
+            {pageNumber}
+          </span>
         {:else}
           <a
-            href={buildHref(pageItem)}
-            aria-current={pageItem === currentPage ? 'page' : undefined}
-            class={`min-w-10 rounded-lg border px-3 py-2 text-center text-sm transition-colors ${
-              pageItem === currentPage
-                ? 'border-[--color-red] bg-[--color-red] text-white'
-                : 'border-[--border] bg-surface text-[--text-primary] hover:border-[--color-red] hover:text-[--color-red]'
-            }`}
+            href={buildHref(pageNumber)}
+            class="inline-flex min-w-10 items-center justify-center rounded-lg border border-[--border] px-3 py-2 text-sm text-[--text-secondary] transition-colors hover:bg-[--bg-secondary]"
+            aria-label={`Ir a la página ${pageNumber} de ${label.toLowerCase()}`}
           >
-            {pageItem}
+            {pageNumber}
           </a>
         {/if}
       {/each}
 
-      <a
-        href={currentPage < totalPages ? buildHref(currentPage + 1) : undefined}
-        aria-disabled={currentPage >= totalPages}
-        class={`rounded-lg border px-3 py-2 text-sm transition-colors ${
-          currentPage >= totalPages
-            ? 'pointer-events-none border-[--border] text-[--text-muted] opacity-50'
-            : 'border-[--border] bg-surface text-[--text-primary] hover:border-[--color-red] hover:text-[--color-red]'
-        }`}
-      >
-        Siguiente
-      </a>
+      {#if hasNext}
+        <a
+          href={buildHref(currentPage + 1)}
+          class="inline-flex items-center rounded-lg border border-[--border] px-3 py-2 text-sm text-[--text-secondary] transition-colors hover:bg-[--bg-secondary]"
+          aria-label={`Página siguiente de ${label.toLowerCase()}`}
+        >
+          Siguiente
+        </a>
+      {/if}
     </div>
   </nav>
 {/if}

@@ -3,6 +3,7 @@
   import { capture } from '$lib/utils/posthog';
   import Button from '$lib/components/ui/Button.svelte';
   import PageHero from '$lib/components/layout/PageHero.svelte';
+  import SafeRichText from '$lib/components/ui/SafeRichText.svelte';
 
   interface Content {
     hero_eyebrow?: string;
@@ -73,9 +74,13 @@
   <div class="max-w-3xl mx-auto px-4 sm:px-12 lg:px-14 text-center">
     <span class="text-lg uppercase tracking-widest block mb-4" style="color: var(--accent); font-family: var(--font-subheading);">¿Qué es D.Lab?</span>
     <div class="w-12 h-0.5 mx-auto mb-6" style="background: var(--accent); opacity: 0.3;"></div>
-    <p class="text-xl md:text-2xl leading-relaxed font-medium" style="color: var(--text-primary);">
-      {@html data.content.what_is_dlab_text || 'D.Lab es el Laboratorio de Investigación aplicada de la USFQ.'}
-    </p>
+    <SafeRichText
+      html={data.content.what_is_dlab_text}
+      fallback="D.Lab es el Laboratorio de Investigación aplicada de la USFQ."
+      as="div"
+      class="text-xl md:text-2xl leading-relaxed font-medium"
+      style="color: var(--text-primary);"
+    />
   </div>
 </section>
 
@@ -89,9 +94,13 @@
           {data.content.vision_title || 'Un ecosistema de innovación estudiantil'}
         </h2>
         <div class="w-10 h-0.5 mt-5 mb-5" style="background: var(--accent); opacity: 0.3;"></div>
-        <p class="text-base md:text-lg leading-relaxed" style="color: var(--text-secondary);">
-          {@html data.content.vision_text || 'Ser el espacio líder de innovación estudiantil en Ecuador, formando profesionales con experiencia práctica en proyectos de impacto real.'}
-        </p>
+        <SafeRichText
+          html={data.content.vision_text}
+          fallback="Ser el espacio líder de innovación estudiantil en Ecuador, formando profesionales con experiencia práctica en proyectos de impacto real."
+          as="div"
+          class="text-base md:text-lg leading-relaxed"
+          style="color: var(--text-secondary);"
+        />
       </div>
       <div class="order-1 lg:order-2 relative aspect-[4/3] rounded-2xl overflow-hidden" style="background: linear-gradient(135deg, color-mix(in srgb, var(--deep) 15%, transparent) 0%, var(--accent-light) 100%);">
         {#if data.visionImage}
@@ -119,9 +128,13 @@
           {data.content.mission_title || 'Formar líderes a través de proyectos reales'}
         </h2>
         <div class="w-10 h-0.5 mt-5 mb-5" style="background: var(--accent); opacity: 0.3;"></div>
-        <p class="text-base md:text-lg leading-relaxed" style="color: var(--text-secondary);">
-          {@html data.content.mission_text || 'Conectar a estudiantes con proyectos desafiantes que desarrollan habilidades técnicas, trabajo en equipo y pensamiento innovador.'}
-        </p>
+        <SafeRichText
+          html={data.content.mission_text}
+          fallback="Conectar a estudiantes con proyectos desafiantes que desarrollan habilidades técnicas, trabajo en equipo y pensamiento innovador."
+          as="div"
+          class="text-base md:text-lg leading-relaxed"
+          style="color: var(--text-secondary);"
+        />
       </div>
       <div class="order-1 relative aspect-[4/3] rounded-2xl overflow-hidden" style="background: linear-gradient(135deg, var(--accent-light) 0%, color-mix(in srgb, var(--deep) 15%, transparent) 100%);">
         {#if data.missionImage}

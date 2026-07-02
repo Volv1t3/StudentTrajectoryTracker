@@ -4,6 +4,7 @@
   import MetaChip from '$lib/components/ui/MetaChip.svelte';
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import SafeRichText from '$lib/components/ui/SafeRichText.svelte';
 
   interface Application {
     id: number;
@@ -119,14 +120,17 @@
             <StatusBadge status={app.estado} />
           </div>
           {#if app.mensaje_motivacion}
-            <p class="mt-3 text-xs text-[--text-secondary] bg-[--bg-secondary] rounded-lg px-3 py-2.5 leading-relaxed ">
-              {@html app.mensaje_motivacion}
-            </p>
+            <SafeRichText
+              html={app.mensaje_motivacion}
+              as="div"
+              class="mt-3 text-xs text-[--text-secondary] bg-[--bg-secondary] rounded-lg px-3 py-2.5 leading-relaxed"
+            />
           {/if}
           {#if app.feedback_admin}
-            <p class="mt-2 text-xs bg-blue-50 border border-blue-100 text-blue-800 rounded-lg px-3 py-2.5">
-              <span class="font-semibold">Nota del equipo: </span>{@html app.feedback_admin}
-            </p>
+            <div class="mt-2 text-xs bg-blue-50 border border-blue-100 text-blue-800 rounded-lg px-3 py-2.5">
+              <span class="font-semibold">Nota del equipo:</span>
+              <SafeRichText html={app.feedback_admin} as="div" class="mt-1 leading-relaxed" />
+            </div>
           {/if}
           {#if canWithdraw(app)}
             <div class="mt-4 flex justify-end">

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { verifyAccessToken } from '../middleware/auth.js';
+import { sanitizeRichTextFields } from '../middleware/sanitizeRichTextFields.js';
 import { validate } from '../validators/validate.js';
 import { updateProfileSchema, updateAvailabilitySchema } from '../validators/collaborator.validator.js';
 import { submitApplicationSchema } from '../validators/application.validator.js';
@@ -11,10 +12,20 @@ const router = Router();
 router.use(verifyAccessToken);
 
 router.get('/profile', collaborator.getProfile);
-router.put('/profile', validate(updateProfileSchema), collaborator.updateProfile);
+router.put(
+  '/profile',
+  sanitizeRichTextFields(['motivationDescription', 'experienceDescription']),
+  validate(updateProfileSchema),
+  collaborator.updateProfile,
+);
 router.post('/tags', collaborator.createTag);
 router.get('/applications', application.list);
-router.post('/applications', validate(submitApplicationSchema), application.submit);
+router.post(
+  '/applications',
+  sanitizeRichTextFields(['reason_for_applying']),
+  validate(submitApplicationSchema),
+  application.submit,
+);
 router.delete('/applications/:id', application.withdraw);
 router.get('/assignments', assignment.list);
 router.get('/availability', collaborator.getAvailability);

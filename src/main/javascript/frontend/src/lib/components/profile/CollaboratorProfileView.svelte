@@ -2,6 +2,7 @@
   import Button from '$lib/components/ui/Button.svelte';
   import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
   import InfoRow from '$lib/components/ui/InfoRow.svelte';
+  import SafeRichText from '$lib/components/ui/SafeRichText.svelte';
 
   interface AvailabilitySlot {
     day_of_week: string;
@@ -164,78 +165,22 @@
   <div class="md:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-5">
     <div class="bg-surface rounded-xl border border-[--border] p-6">
       <h3 class="font-semibold text-[--text-primary] mb-3">Motivación</h3>
-      <p class="text-sm text-[--text-secondary] leading-relaxed profile-rich-text">{@html colaborador.motivationDescription || 'Sin motivación registrada'}</p>
+      <SafeRichText
+        html={colaborador.motivationDescription}
+        fallback="Sin motivación registrada"
+        as="div"
+        class="text-sm text-[--text-secondary] leading-relaxed"
+      />
     </div>
 
     <div class="bg-surface rounded-xl border border-[--border] p-6">
       <h3 class="font-semibold text-[--text-primary] mb-3">Experiencia previa</h3>
-      <p class="text-sm text-[--text-secondary] leading-relaxed profile-rich-text">{@html colaborador.experienceDescription || 'Sin experiencia previa registrada'}</p>
+      <SafeRichText
+        html={colaborador.experienceDescription}
+        fallback="Sin experiencia previa registrada"
+        as="div"
+        class="text-sm text-[--text-secondary] leading-relaxed"
+      />
     </div>
   </div>
 </div>
-
-<style>
-  :global(.profile-rich-text ul) {
-    list-style-type: disc;
-    padding-left: 1.5rem;
-    margin: 0.5rem 0;
-  }
-  :global(.profile-rich-text ol) {
-    list-style-type: decimal;
-    padding-left: 1.5rem;
-    margin: 0.5rem 0;
-  }
-  :global(.profile-rich-text li) {
-    margin: 0.15rem 0;
-  }
-  :global(.profile-rich-text li p) {
-    margin: 0;
-  }
-  :global(.profile-rich-text blockquote) {
-    border-left: 3px solid var(--accent, #dc2626);
-    padding-left: 1rem;
-    margin: 0.5rem 0;
-    color: var(--text-secondary);
-  }
-  :global(.profile-rich-text code) {
-    background: var(--bg-secondary);
-    border-radius: 0.25rem;
-    padding: 0.15rem 0.3rem;
-    font-size: 0.875rem;
-  }
-  :global(.profile-rich-text pre) {
-    background: var(--bg-secondary);
-    border-radius: 0.5rem;
-    padding: 0.75rem 1rem;
-    margin: 0.5rem 0;
-    overflow-x: auto;
-  }
-  :global(.profile-rich-text pre code) {
-    background: none;
-    padding: 0;
-  }
-  :global(.profile-rich-text h1) {
-    font-size: 1.5rem;
-    font-weight: 700;
-    margin: 0.5rem 0;
-  }
-  :global(.profile-rich-text h2) {
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin: 0.5rem 0;
-  }
-  :global(.profile-rich-text h3) {
-    font-size: 1.125rem;
-    font-weight: 600;
-    margin: 0.5rem 0;
-  }
-  :global(.profile-rich-text a) {
-    color: var(--accent, #dc2626);
-    text-decoration: underline;
-  }
-  :global(.profile-rich-text hr) {
-    border: none;
-    border-top: 2px solid var(--border);
-    margin: 1rem 0;
-  }
-</style>

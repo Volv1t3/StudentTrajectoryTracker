@@ -122,11 +122,11 @@
       <div class="relative flex flex-wrap">
         <InfoRow icon="Search" label="Filtrar proyectos por su nombre" value="" classes="mb-1"/>
         <input
-          type="text"
-          placeholder="Buscar proyectos..."
-          bind:value={searchQuery}
-          oninput={handleSearch}
-          class="w-full pl-9 pr-4 py-2.5 text-sm rounded-lg border border-[--border] bg-surface focus:ring-2 focus:ring-[--color-red] focus:outline-none"
+            type="text"
+            placeholder="Buscar proyectos..."
+            bind:value={searchQuery}
+            oninput={handleSearch}
+            class="w-full pl-9 pr-4 py-2.5 text-sm rounded-lg border border-[--border] bg-surface focus:ring-2 focus:ring-[--color-red] focus:outline-none"
         />
       </div>
       <div>
@@ -195,11 +195,11 @@
   <section class="bg-surface py-10 md:py-14">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <EmptyState
-        icon="Search"
-        title="Sin resultados"
-        description="No encontramos proyectos con esos filtros. Prueba con otros criterios."
-        actionLabel="Limpiar filtros"
-        actionOnClick={() => { searchQuery = ''; selectedCategory = ''; selectedStatus = ''; selectedModalidad = ''; }}
+          icon="Search"
+          title="Sin resultados"
+          description="No encontramos proyectos con esos filtros. Prueba con otros criterios."
+          actionLabel="Limpiar filtros"
+          actionOnClick={() => { searchQuery = ''; selectedCategory = ''; selectedStatus = ''; selectedModalidad = ''; }}
       />
     </div>
   </section>

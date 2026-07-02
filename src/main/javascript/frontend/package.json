@@ -17,6 +17,7 @@
     "@2toad/profanity": "^3.3.0",
     "@supabase/supabase-js": "^2.107.0",
     "@sveltejs/adapter-static": "^3.0.10",
+    "isomorphic-dompurify": "3.18.0",
     "@tiptap/core": "^3.27.1",
     "@tiptap/extension-code-block-lowlight": "^3.27.1",
     "@tiptap/extension-hard-break": "^3.27.1",

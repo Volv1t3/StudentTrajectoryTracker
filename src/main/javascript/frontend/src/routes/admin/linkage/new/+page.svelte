@@ -1,6 +1,5 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { untrack } from 'svelte';
   import {
     ArrowLeft,
     BriefcaseBusiness,
@@ -11,17 +10,7 @@
   import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import RichTextField from '$lib/components/ui/RichTextField.svelte';
-  import FormErrorSummary from '$lib/components/ui/FormErrorSummary.svelte';
-  import {
-    validateCreateAssignmentForm,
-    APPLICATION_LIMITS,
-  } from '$lib/validation/application';
-  import {
-    extractApiError,
-    mapBackendFields,
-    summarizeFormError,
-  } from '$lib/validation/apiError';
-  import { applicationFieldMap } from '$lib/validation/fieldMaps';
+  import SafeRichText from '$lib/components/ui/SafeRichText.svelte';
 
   type ProjectTag = {
     id: number;
@@ -107,7 +96,6 @@
     };
     form?: {
       error?: string;
-      apiError?: unknown;
     };
   }
 
@@ -120,62 +108,6 @@
   let manualReason = $state('');
   let manualRole = $state('');
   let manualNotes = $state('');
-
-  // Backend error + top error state for the structured ERR_VALIDATION pipeline.
-  let touched = $state<Record<string, boolean>>({});
-  let submitAttempted = $state(false);
-  let backendErrors = $state<Record<string, string>>({});
-  let topError = $state('');
-
-  function markTouched(key: string) {
-    if (!touched[key]) touched = { ...touched, [key]: true };
-    if (backendErrors[key]) {
-      const { [key]: _drop, ...rest } = backendErrors;
-      backendErrors = rest;
-    }
-  }
-
-  function stripHtml(s: string) {
-    return s.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
-  }
-
-  let manualReasonPlain = $derived(stripHtml(manualReason));
-  let manualNotesPlain = $derived(stripHtml(manualNotes));
-
-  let frontErrors = $derived(
-    validateCreateAssignmentForm({
-      collaborator_id: manualCollaboratorId ?? 0,
-      project_id: manualProjectId ?? 0,
-      reason_for_linking: manualReasonPlain,
-      role_in_project: manualRole || undefined,
-      admin_notes: manualNotesPlain || undefined,
-    }) as Record<string, string>
-  );
-
-  let show = $derived<Record<string, boolean>>({
-    reason_for_linking: touched.reason_for_linking || manualReasonPlain.length > 0 || submitAttempted,
-    collaborator_id: !!manualCollaboratorId || submitAttempted,
-    project_id: !!manualProjectId || submitAttempted,
-    role_in_project: touched.role_in_project || !!manualRole || submitAttempted,
-    admin_notes: touched.admin_notes || manualNotesPlain.length > 0 || submitAttempted,
-  });
-
-  let errors = $derived<Record<string, string>>({ ...frontErrors, ...backendErrors });
-
-  $effect(() => {
-    if (form?.apiError !== undefined || form?.error !== undefined) {
-      const extracted = extractApiError(form?.apiError ?? form?.error ?? null);
-      const mappedBackendErrors = mapBackendFields(extracted.fields, applicationFieldMap);
-      const nextTopError = summarizeFormError(extracted);
-      const nextTouched: Record<string, boolean> = { ...untrack(() => touched) };
-      for (const k of Object.keys(mappedBackendErrors)) nextTouched[k] = true;
-
-      backendErrors = mappedBackendErrors;
-      topError = nextTopError;
-      submitAttempted = true;
-      touched = nextTouched;
-    }
-  });
 
   let projectSelectorOpen = $state(false);
   let collaboratorSelectorOpen = $state(false);
@@ -257,7 +189,7 @@
   });
 
   const canSubmitManual = $derived(
-    Boolean(selectedProject && selectedCollaborator) && Object.keys(frontErrors).length === 0,
+    Boolean(selectedProject && selectedCollaborator && manualReason.trim().length >= 20),
   );
 
   const selectedProjectMeetingDays = $derived(
@@ -335,8 +267,8 @@
     </div>
   </header>
 
-  {#if form?.error || topError}
-    <FormErrorSummary message={topError || form?.error || ''} onDismiss={() => (topError = '')} />
+  {#if form?.error}
+    <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{form.error}</div>
   {/if}
 
   <section class="bg-surface rounded-xl border border-[--border] p-5">
@@ -379,7 +311,11 @@
                   <div class="flex items-start justify-between gap-3">
                     <div>
                       <p class="font-medium text-[--text-primary]">{project.title}</p>
-                      <p class="mt-1 text-xs text-[--text-muted]">{@html project.short_description}</p>
+                      <SafeRichText
+                        html={project.short_description}
+                        as="div"
+                        class="linkage-project-option mt-1 text-xs text-[--text-muted]"
+                      />
                     </div>
                     <StatusBadge status={project.status} />
                   </div>
@@ -486,17 +422,30 @@
               <div class="grid gap-4 md:grid-cols-1">
                 <div class="space-y-2">
                   <p class="text-sm font-bold text-[--text-secondary]">Descripción corta</p>
-                  <p class="text-sm text-[--text-secondary]">{@html selectedProject.short_description || 'Sin descripción corta registrada'}</p>
+                  <SafeRichText
+                    html={selectedProject.short_description}
+                    fallback="Sin descripción corta registrada"
+                    as="div"
+                    class="text-sm text-[--text-secondary]"
+                  />
                 </div>
                 <div class="space-y-2">
                   <p class="text-sm font-bold text-[--text-secondary]">Descripción ampliada</p>
-                  <div class="text-[--text-secondary] project-description prose prose-sm max-w-none leading-relaxed">
-                    {@html selectedProject.full_description || 'Sin descripción ampliada registrada'}
-                  </div>
+                  <SafeRichText
+                    html={selectedProject.full_description}
+                    fallback="Sin descripción ampliada registrada"
+                    as="div"
+                    class="text-[--text-secondary] project-description prose prose-sm max-w-none leading-relaxed"
+                  />
                 </div>
                 <div class="space-y-2">
                   <p class="text-sm font-bold text-[--text-secondary]">Público objetivo</p>
-                  <p class="text-sm text-[--text-secondary] project-description prose prose-sm max-w-noneleading-relaxed">{@html selectedProject.target_audience || 'Sin público objetivo registrado'}</p>
+                  <SafeRichText
+                    html={selectedProject.target_audience}
+                    fallback="Sin público objetivo registrado"
+                    as="div"
+                    class="text-sm text-[--text-secondary] project-description prose prose-sm max-w-none leading-relaxed"
+                  />
                 </div>
                 <div class="space-y-2">
                   <p class="text-sm font-bold text-[--text-secondary]">Estado</p>
@@ -619,11 +568,21 @@
               <div class="grid gap-4 md:grid-cols-2">
                 <div class="space-y-2">
                   <p class="text-sm font-bold text-[--text-secondary]">Motivación</p>
-                  <p class="text-sm text-[--text-secondary]">{@html selectedCollaborator.motivation_description || 'Sin motivación registrada'}</p>
+                  <SafeRichText
+                    html={selectedCollaborator.motivation_description}
+                    fallback="Sin motivación registrada"
+                    as="div"
+                    class="text-sm text-[--text-secondary]"
+                  />
                 </div>
                 <div class="space-y-2">
                   <p class="text-sm font-bold text-[--text-secondary]">Experiencia previa</p>
-                  <p class="text-sm text-[--text-secondary]">{@html selectedCollaborator.experience_description || 'Sin experiencia registrada'}</p>
+                  <SafeRichText
+                    html={selectedCollaborator.experience_description}
+                    fallback="Sin experiencia registrada"
+                    as="div"
+                    class="text-sm text-[--text-secondary]"
+                  />
                 </div>
               </div>
             </div>
@@ -749,23 +708,7 @@
         </div>
       </section>
 
-      <form
-        method="POST"
-        action="?/createManual"
-        use:enhance={({ cancel }) => {
-          submitAttempted = true;
-          if (Object.keys(frontErrors).length > 0) {
-            const next: Record<string, boolean> = {};
-            for (const k of Object.keys(frontErrors)) next[k] = true;
-            touched = { ...touched, ...next };
-            topError = 'Revisa los campos marcados antes de continuar.';
-            cancel();
-            return;
-          }
-          return async ({ update }) => { await update(); };
-        }}
-        class="bg-surface rounded-xl border border-[--border] p-5"
-      >
+      <form method="POST" action="?/createManual" use:enhance class="bg-surface rounded-xl border border-[--border] p-5">
         <input type="hidden" name="project_id" value={manualProjectId ?? ''} />
         <input type="hidden" name="collaborator_id" value={manualCollaboratorId ?? ''} />
 
@@ -778,13 +721,9 @@
               placeholder="Describe por qué esta vinculación debe aprobarse manualmente."
               required
               minHeightClass="min-h-[120px]"
-              onchange={(html) => { manualReason = html; markTouched('reason_for_linking'); }}
-              counter={APPLICATION_LIMITS.reason_for_linking.max}
-              hint={`Entre ${APPLICATION_LIMITS.reason_for_linking.min} y ${APPLICATION_LIMITS.reason_for_linking.max} caracteres`}
-              error={errors.reason_for_linking}
-              touched={show.reason_for_linking}
+              onchange={(html) => { manualReason = html; }}
             />
-            <p class="mt-2 text-xs text-[--text-muted]">Mínimo {APPLICATION_LIMITS.reason_for_linking.min} caracteres. Actual: {manualReasonPlain.length}</p>
+            <p class="mt-2 text-xs text-[--text-muted]">Mínimo 20 caracteres. Actual: {manualReason.replace(/<[^>]*>/g, '').trim().length}</p>
           </div>
 
           <div>
@@ -794,10 +733,7 @@
               value={manualNotes}
               placeholder="Opcional"
               minHeightClass="min-h-[120px]"
-              onchange={(html) => { manualNotes = html; markTouched('admin_notes'); }}
-              counter={APPLICATION_LIMITS.admin_notes.max}
-              error={errors.admin_notes}
-              touched={show.admin_notes}
+              onchange={(html) => { manualNotes = html; }}
             />
           </div>
         </div>
@@ -810,16 +746,8 @@
             type="text"
             bind:value={manualRole}
             placeholder="Opcional"
-            maxlength={APPLICATION_LIMITS.role_in_project.max}
-            class="w-full rounded-xl border bg-[--bg-secondary] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[--color-red]"
-            class:border-red-400={show.role_in_project && !!errors.role_in_project}
-            class:border-[--border]={!(show.role_in_project && !!errors.role_in_project)}
+            class="w-full rounded-xl border border-[--border] bg-[--bg-secondary] px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[--color-red]"
           />
-          {#if show.role_in_project && errors.role_in_project}
-            <p class="mt-1 text-xs text-red-500">{errors.role_in_project}</p>
-          {:else}
-            <p class="mt-1 text-xs text-[--text-muted]">Máximo {APPLICATION_LIMITS.role_in_project.max} caracteres.</p>
-          {/if}
         </div>
 
         <div class="mt-6 flex justify-center gap-3">
@@ -842,3 +770,10 @@
     </div>
   {/if}
 </div>
+
+<style>
+  :global(.linkage-project-option p) {
+    display: inline;
+    margin: 0;
+  }
+</style>

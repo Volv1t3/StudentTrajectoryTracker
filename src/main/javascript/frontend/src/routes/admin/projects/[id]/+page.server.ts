@@ -1,6 +1,6 @@
 import type { PageServerLoad, Actions } from './$types';
 import { error, fail, redirect } from '@sveltejs/kit';
-import { api, apiDelete, apiGet, apiPut } from '$lib/server/api';
+import { api, apiGet, apiPut } from '$lib/server/api';
 import { getAdminAccessToken } from '$lib/server/auth';
 import { loadAdministratorOptions } from '$lib/server/admin-administrators';
 import { validateBucketUpload } from '$lib/server/upload-limits';
@@ -151,7 +151,7 @@ export const actions: Actions = {
     const headerImageUrl = form.get('header_image_url')?.toString().trim() || null;
     const uploadError = validateBucketUpload(headerImageFile, 'La imagen principal');
     if (uploadError) {
-      return fail(400, { error: uploadError, apiError: { code: 'ERR_UPLOAD', message: uploadError } });
+      return fail(400, { error: uploadError });
     }
     const parseJson = <T>(value: FormDataEntryValue | null): T => {
       if (!value) return [] as T;
@@ -185,9 +185,8 @@ export const actions: Actions = {
 
     const res = await apiPut(`/api/admin/projects/${params.id}`, body, token);
     if (!res.ok) {
-      const apiError = (res.data as any)?.error ?? null;
-      const msg = apiError?.message || 'Error al guardar el proyecto';
-      return fail(res.status, { error: msg, apiError });
+      const msg = (res.data as any)?.error?.message || 'Error al guardar el proyecto';
+      return fail(res.status, { error: msg });
     }
 
     const projectId = Number(params.id);
@@ -232,16 +231,5 @@ export const actions: Actions = {
     }
 
     throw redirect(302, '/admin/projects');
-  },
-  deleteProject: async ({ params, cookies }) => {
-    const token = getAdminAccessToken(cookies)!;
-    const res = await apiDelete(`/api/admin/projects/${params.id}`, token);
-    if (!res.ok) {
-      const apiError = (res.data as any)?.error ?? null;
-      const msg = apiError?.message || 'Error al eliminar el proyecto';
-      return fail(res.status, { error: msg, apiError });
-    }
-
-    throw redirect(302, '/admin/projects');
-  },
+  }
 };

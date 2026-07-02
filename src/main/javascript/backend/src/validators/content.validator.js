@@ -29,8 +29,11 @@ const optionalString = z.string().optional().nullable().transform((v) => (v == n
 // SINGLETON SECTIONS
 // =============================================================================
 
-// home_hero — Admin CMS only edits the textual fields; URLs/background are
-// preserved server-side from the currently active row.
+// home_hero — Admin CMS only edits plain-text copy; URLs/background are
+// preserved server-side from the currently active row. `subheadline` is
+// rendered through PageHero/SafeRichText in the frontend, but product intent
+// still classifies it as plain text because the admin authoring surface is a
+// normal textarea rather than the rich-text editor.
 export const homeHeroSchema = z.object({
   headline: z.string({ required_error: 'El titular es obligatorio', invalid_type_error: 'El titular es obligatorio' })
     .min(1, 'El titular es obligatorio')
@@ -42,7 +45,8 @@ export const homeHeroSchema = z.object({
   secondary_cta_label: z.string().max(100, 'Máximo 100 caracteres').optional().nullable().transform((v) => (v == null || v === '' ? null : v)),
 });
 
-// dlab_identity — admin CMS edits only the textual identity/mission/vision fields.
+// dlab_identity — `body`, `mission_body`, and `vision_body` are rich text;
+// `title`, `mission_title`, and `vision_title` remain plain text labels.
 export const dlabIdentitySchema = z.object({
   title: z.string({ required_error: 'El título es obligatorio', invalid_type_error: 'El título es obligatorio' })
     .min(1, 'El título es obligatorio')
@@ -59,7 +63,8 @@ export const dlabIdentitySchema = z.object({
 // REPEATABLE SECTIONS
 // =============================================================================
 
-// value_propositions — admin CMS edits only textual + ordering/visibility fields.
+// value_propositions — `description` is rich text; `title` and
+// `target_audience` are plain text.
 export const valuePropositionSchema = z.object({
   title: z.string({ required_error: 'El título es obligatorio', invalid_type_error: 'El título es obligatorio' })
     .min(1, 'El título es obligatorio')
@@ -76,7 +81,8 @@ export const valuePropositionSchema = z.object({
   is_visible: z.boolean({ invalid_type_error: 'La visibilidad debe ser verdadero o falso' }).optional(),
 });
 
-// participation_steps — DB columns:
+// participation_steps — `description` is rich text; `title` remains plain
+// text. DB columns:
 //   step_number, title, description, icon_identifier, is_visible
 export const participationStepSchema = z.object({
   step_number: z.number({ invalid_type_error: 'El número de paso debe ser un número' })
@@ -111,8 +117,9 @@ export const socialLinkSchema = z.object({
   is_visible: z.boolean({ invalid_type_error: 'La visibilidad debe ser verdadero o falso' }).optional(),
 });
 
-// contact_info — admin CMS edits textual/contact fields only; maps_url remains
-// non-editable in this UI.
+// contact_info — `cta_description` is rich text; identity/contact labels such
+// as `title_description` and `cta_headline` remain plain text. `maps_url`
+// remains non-editable in this UI.
 export const contactInfoSchema = z.object({
   first_name: z.string({ required_error: 'El nombre es obligatorio', invalid_type_error: 'El nombre es obligatorio' })
     .min(1, 'El nombre es obligatorio')

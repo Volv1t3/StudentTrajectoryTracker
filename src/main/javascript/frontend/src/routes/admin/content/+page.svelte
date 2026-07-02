@@ -83,6 +83,9 @@
   let stepBanner = $derived(bannerFor('participation_steps'));
   let contactBanner = $derived(bannerFor('contact_info'));
   let socialBanner = $derived(bannerFor('social_links'));
+  let NewValuePropositionIcon = $derived(resolveIcon(newVpIcon));
+  let NewParticipationStepIcon = $derived(resolveIcon(newStepIcon));
+  let NewSocialLinkIcon = $derived(resolveIcon(newSocialIcon));
 
   const refreshAfterSubmit = () => {
     return async ({ result, update }: { result: { type: string }; update: (options?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> }) => {
@@ -278,6 +281,7 @@
     {:else}
       <div class="space-y-4">
         {#each vpOrder as vp, index (vp.id)}
+          {@const ValuePropositionIcon = resolveIcon(vp.icon_identifier)}
           <article class="rounded-lg border border-[--border] bg-[--bg-secondary] p-4 space-y-4">
             <div class="flex items-center justify-between gap-3">
               <div class="text-sm text-[--text-muted]">
@@ -342,8 +346,8 @@
                       {/each}
                     </select>
                     <div class="w-14 h-14 rounded-lg border border-[--border] flex items-center justify-center shrink-0" style="background: var(--bg-secondary);">
-                      {#if resolveIcon(vp.icon_identifier)}
-                        <svelte:component this={resolveIcon(vp.icon_identifier)} size={28} />
+                      {#if ValuePropositionIcon}
+                        <ValuePropositionIcon size={28} />
                       {:else}
                         <span class="text-xs text-[--text-muted]">—</span>
                       {/if}
@@ -409,8 +413,8 @@
               {/each}
             </select>
             <div class="w-14 h-14 rounded-lg border border-[--border] flex items-center justify-center shrink-0" style="background: var(--bg-secondary);">
-              {#if resolveIcon(newVpIcon)}
-                <svelte:component this={resolveIcon(newVpIcon)} size={28} />
+              {#if NewValuePropositionIcon}
+                <NewValuePropositionIcon size={28} />
               {:else}
                 <span class="text-xs text-[--text-muted]">—</span>
               {/if}
@@ -468,6 +472,7 @@
     {:else}
       <div class="space-y-4">
         {#each stepOrder as step, index (step.id)}
+          {@const ParticipationStepIcon = resolveIcon(step.icon_identifier)}
           <article class="rounded-lg border border-[--border] bg-[--bg-secondary] p-4 space-y-4">
             <div class="flex items-center justify-between gap-3">
               <div class="text-sm text-[--text-muted]">
@@ -513,8 +518,8 @@
                     {/each}
                   </select>
                   <div class="w-14 h-14 rounded-lg border border-[--border] flex items-center justify-center shrink-0" style="background: var(--bg-secondary);">
-                    {#if resolveIcon(step.icon_identifier)}
-                      <svelte:component this={resolveIcon(step.icon_identifier)} size={28} />
+                    {#if ParticipationStepIcon}
+                      <ParticipationStepIcon size={28} />
                     {:else}
                       <span class="text-xs text-[--text-muted]">—</span>
                     {/if}
@@ -583,8 +588,8 @@
               {/each}
             </select>
             <div class="w-14 h-14 rounded-lg border border-[--border] flex items-center justify-center shrink-0" style="background: var(--bg-secondary);">
-              {#if resolveIcon(newStepIcon)}
-                <svelte:component this={resolveIcon(newStepIcon)} size={28} />
+              {#if NewParticipationStepIcon}
+                <NewParticipationStepIcon size={28} />
               {:else}
                 <span class="text-xs text-[--text-muted]">—</span>
               {/if}
@@ -812,6 +817,7 @@
     {:else}
       <div class="space-y-4">
         {#each data.socialLinks as link (link.id)}
+          {@const SocialLinkIcon = resolveIcon(link.icon_identifier)}
           <article class="rounded-lg border border-[--border] bg-[--bg-secondary] p-4 space-y-4">
             <div class="text-sm text-[--text-muted]">ID {link.id}</div>
 
@@ -838,8 +844,8 @@
                     {/each}
                   </select>
                   <div class="w-14 h-14 rounded-lg border border-[--border] flex items-center justify-center shrink-0" style="background: var(--bg-secondary);">
-                    {#if resolveIcon(link.icon_identifier)}
-                      <svelte:component this={resolveIcon(link.icon_identifier)} size={28} />
+                    {#if SocialLinkIcon}
+                      <SocialLinkIcon size={28} />
                     {:else}
                       <span class="text-xs text-[--text-muted]">—</span>
                     {/if}
@@ -894,8 +900,8 @@
               {/each}
             </select>
             <div class="w-14 h-14 rounded-lg border border-[--border] flex items-center justify-center shrink-0" style="background: var(--bg-secondary);">
-              {#if resolveIcon(newSocialIcon)}
-                <svelte:component this={resolveIcon(newSocialIcon)} size={28} />
+              {#if NewSocialLinkIcon}
+                <NewSocialLinkIcon size={28} />
               {:else}
                 <span class="text-xs text-[--text-muted]">—</span>
               {/if}

@@ -57,11 +57,11 @@ export const actions: Actions = {
     const posterImageFile = form.get('poster_image_file');
     const bannerUploadError = validateBucketUpload(bannerImageFile, 'El banner');
     if (bannerUploadError) {
-      return fail(400, { error: bannerUploadError, apiError: { code: 'ERR_UPLOAD', message: bannerUploadError } });
+      return fail(400, { error: bannerUploadError });
     }
     const posterUploadError = validateBucketUpload(posterImageFile, 'El afiche');
     if (posterUploadError) {
-      return fail(400, { error: posterUploadError, apiError: { code: 'ERR_UPLOAD', message: posterUploadError } });
+      return fail(400, { error: posterUploadError });
     }
     const bannerImageUrl = toNullable(form.get('banner_image_url'));
     const posterImageUrl = toNullable(form.get('poster_image_url'));
@@ -91,9 +91,8 @@ export const actions: Actions = {
 
     const res = await apiPost<{ id: number }>('/api/admin/events', body, token);
     if (!res.ok) {
-      const apiError = (res.data as any)?.error ?? null;
-      const msg = apiError?.message || 'Error al crear el evento';
-      return fail(res.status, { error: msg, apiError });
+      const msg = (res.data as any)?.error?.message || 'Error al crear el evento';
+      return fail(res.status, { error: msg });
     }
 
     const eventId = Number((res.data as any)?.id);

@@ -27,7 +27,8 @@ export const load: PageServerLoad = async () => {
       title_description: contact?.title_description ?? '',
       contact_email: contact?.contact_email ?? '',
       contact_location: contact?.physical_location ?? '',
-      contact_availability: [contact?.cta_headline, contact?.cta_description].filter(Boolean).join(': ') || '',
+      contact_headline: contact?.cta_headline ?? '',
+      contact_description: contact?.cta_description ?? '',
       social_instagram: findSocial('instagram'),
       social_usfq: findSocial('usfq')
     }

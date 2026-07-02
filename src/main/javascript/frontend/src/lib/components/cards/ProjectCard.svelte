@@ -4,6 +4,7 @@
   import MetaChip from '$lib/components/ui/MetaChip.svelte';
   import SkillTag from '$lib/components/ui/SkillTag.svelte';
   import InfoRow from '$lib/components/ui/InfoRow.svelte';
+  import SafeRichText from '$lib/components/ui/SafeRichText.svelte';
 
   interface Project {
     id: number;
@@ -45,7 +46,11 @@
 
 
     <h3 class="text-base font-bold text-[--text-primary] leading-snug">{project.nombre}</h3>
-    <p class="text-sm text-[--text-secondary] mt-1.5 line-clamp-3 flex-1">{@html project.descripcion_corta}</p>
+    <SafeRichText
+      html={project.descripcion_corta}
+      as="div"
+      class="project-card-description text-sm text-[--text-secondary] mt-1.5 line-clamp-3 flex-1"
+    />
     <div class="flex flex-wrap gap-2 mt-4">
       {#if project.duracion_semanal}
         <MetaChip icon="Clock" value={project.duracion_semanal} />
@@ -74,3 +79,10 @@
     </footer>
   </div>
 </article>
+
+<style>
+  :global(.project-card-description p) {
+    display: inline;
+    margin: 0;
+  }
+</style>
