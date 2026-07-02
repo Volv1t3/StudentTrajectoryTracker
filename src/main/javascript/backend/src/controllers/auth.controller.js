@@ -1,5 +1,6 @@
 import { env } from '../config/env.js';
 import * as collaboratorQ from '../queries/collaborator.queries.js';
+import * as administratorQ from '../queries/administrator.queries.js';
 import * as authQ from '../queries/auth.queries.js';
 import * as authService from '../services/auth.service.js';
 import * as emailService from '../services/email.service.js';
@@ -181,7 +182,12 @@ export async function forgotPassword(req, res, next) {
     const user = await collaboratorQ.findByEmail(email);
     if (user && user.is_active && user.password_hash) {
       const { token, hash } = authService.generateResetToken();
-      await authQ.storeResetToken({ collaboratorId: user.id, tokenHash: hash, expiresAt: new Date(Date.now() + env.RESET_TOKEN_TTL_M * 60000) });
+      await authQ.storeResetToken({
+        collaboratorId: user.id,
+        administratorId: null,
+        tokenHash: hash,
+        expiresAt: new Date(Date.now() + env.RESET_TOKEN_TTL_M * 60000)
+      });
       emailService.sendPasswordReset({
         firstName: user.first_name,
         email: user.usfq_email,
@@ -202,9 +208,18 @@ export async function resetPassword(req, res, next) {
     const record = await authQ.findResetToken(h);
     if (!record) return errorResponse(res, 'INVALID_TOKEN', 'Token inválido o expirado', 400);
     const hash = await authService.hashPassword(new_password);
-    await collaboratorQ.updatePassword(record.collaborator_id, hash);
+
+    if (record.collaborator_id) {
+      await collaboratorQ.updatePassword(record.collaborator_id, hash);
+      await authQ.revokeAllUserTokens('Colaborador', record.collaborator_id);
+    } else if (record.administrator_id) {
+      await administratorQ.updatePassword(record.administrator_id, hash);
+      await authQ.revokeAllUserTokens('Administrador', record.administrator_id);
+    } else {
+      return errorResponse(res, 'INVALID_TOKEN', 'Token inválido o expirado', 400);
+    }
+
     await authQ.markResetTokenUsed(h);
-    await authQ.revokeAllUserTokens('Colaborador', record.collaborator_id);
     res.json({ message: 'Contraseña actualizada' });
   } catch (e) {
     next(e);

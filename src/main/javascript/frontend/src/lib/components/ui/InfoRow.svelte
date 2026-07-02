@@ -40,7 +40,7 @@
   </div>
   <div>
     {#if label}
-      <span class="text-xs text-[--text-muted] block">{label}</span>
+      <span class="text-xs text-[--text-muted] block align-top">{label}</span>
     {/if}
     {#if href}
       <a href={href} class="text-[--text-secondary] font-medium hover:text-[--color-red] transition-colors">{value}</a>

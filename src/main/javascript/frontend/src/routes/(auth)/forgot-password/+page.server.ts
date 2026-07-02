@@ -12,8 +12,14 @@ export const actions: Actions = {
   forgotPassword: async ({ request }) => {
     const form = await request.formData();
     const email = normalizeEmail(form.get('email') as string);
-    if (!email) return fail(400, { error: 'Correo requerido' });
-    if (!isUsfqEmail(email)) return fail(400, { error: 'El correo debe terminar en .usfq.edu.ec' });
+    if (!email) {
+      const msg = 'Correo requerido';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { email: msg } } });
+    }
+    if (!isUsfqEmail(email)) {
+      const msg = 'El correo debe terminar en .usfq.edu.ec';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { email: msg } } });
+    }
 
     await apiPost('/api/auth/forgot-password', { email });
     return { success: true, message: 'Si el correo existe, recibirás instrucciones' };
@@ -25,15 +31,34 @@ export const actions: Actions = {
     const password = form.get('password') as string;
     const confirm = (form.get('confirm') as string) || password;
 
-    if (!token || !password) return fail(400, { error: 'Token y contraseña requeridos' });
+    if (!token || !password) {
+      const msg = 'Token y contraseña requeridos';
+      return fail(400, {
+        error: msg,
+        apiError: {
+          code: 'ERR_VALIDATION',
+          message: msg,
+          fields: {
+            token: !token ? 'Token requerido' : '',
+            password: !password ? 'Contraseña requerida' : '',
+          },
+        },
+      });
+    }
     const passwordError = validatePasswordPolicy(password);
-    if (passwordError) return fail(400, { error: passwordError });
+    if (passwordError) {
+      return fail(400, {
+        error: passwordError,
+        apiError: { code: 'ERR_VALIDATION', message: passwordError, fields: { password: passwordError } },
+      });
+    }
 
     const res = await apiPost('/api/auth/reset-password', { token, new_password: password, confirm });
 
     if (!res.ok) {
-      const msg = (res.data as any)?.error?.message || 'Token inválido o expirado';
-      return fail(res.status, { error: msg });
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'Token inválido o expirado';
+      return fail(res.status, { error: msg, apiError });
     }
 
     return { success: true, message: 'Contraseña actualizada. Ya puedes iniciar sesión.' };

@@ -4,10 +4,10 @@ import AppError from '../utils/AppError.js';
 function mapCollaboratorError(error) {
   const message = String(error?.sqlMessage || error?.message || '');
 
-  if (message.includes('Duplicate entry')) {
-    if (message.includes('usfq_email')) return new AppError('DUPLICATE_EMAIL', 'El correo USFQ ya está registrado', 409);
-    if (message.includes('personal_email')) return new AppError('DUPLICATE_EMAIL', 'El correo personal ya está registrado', 409);
-  }
+
+  if (message.includes('usfq_email')) return new AppError('DUPLICATE_EMAIL', 'El correo USFQ ya está registrado', 409);
+  if (message.includes('personal_email')) return new AppError('DUPLICATE_EMAIL', 'El correo personal ya está registrado', 409);
+
 
   if (message.includes('Collaborator has active assignments')) {
     return new AppError('COLLABORATOR_HAS_ASSIGNMENTS', 'No se puede eliminar un colaborador que tiene vinculaciones activas', 400);

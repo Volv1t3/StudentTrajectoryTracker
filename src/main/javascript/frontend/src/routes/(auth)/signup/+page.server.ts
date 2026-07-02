@@ -116,8 +116,9 @@ export const actions: Actions = {
     const res = await apiPost('/api/auth/register', body);
 
     if (!res.ok) {
-      const msg = (res.data as any)?.error?.message || 'Error en el registro';
-      return fail(res.status, { error: msg });
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'Error en el registro';
+      return fail(res.status, { error: msg, apiError });
     }
 
     return { success: true, nombre: body.first_name };

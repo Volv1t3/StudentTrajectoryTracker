@@ -26,13 +26,38 @@ export const actions: Actions = {
       isActive: form.get('isActive') === 'on',
     };
     const res = await api(`/api/admin/administrators/${params.id}`, { method: 'PUT', body, accessToken: token });
-    if (!res.ok) return fail(res.status, { error: (res.data as any)?.error?.message || 'Error al actualizar' });
+    if (!res.ok) {
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'Error al actualizar';
+      return fail(res.status, { error: msg, apiError });
+    }
     throw redirect(303, '/admin/administradores');
   },
   delete: async ({ params, cookies }) => {
     const token = getAdminAccessToken(cookies)!;
     const res = await api(`/api/admin/administrators/${params.id}`, { method: 'DELETE', accessToken: token });
-    if (!res.ok) return fail(res.status, { error: (res.data as any)?.error?.message || 'Error al eliminar' });
+    if (!res.ok) {
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'Error al eliminar';
+      return fail(res.status, { error: msg, apiError });
+    }
     throw redirect(303, '/admin/administradores');
+  },
+  sendPasswordReset: async ({ params, cookies }) => {
+    const token = getAdminAccessToken(cookies)!;
+    const res = await api('/api/admin/administrators/send-password-reset', {
+      method: 'POST',
+      body: { administrator_id: Number(params.id) },
+      accessToken: token,
+    });
+    if (!res.ok) {
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'Error al enviar el enlace de restablecimiento';
+      return fail(res.status, { error: msg, apiError });
+    }
+    return {
+      passwordResetSent: true,
+      passwordResetMessage: (res.data as any)?.message || 'Enlace de restablecimiento enviado',
+    };
   },
 };

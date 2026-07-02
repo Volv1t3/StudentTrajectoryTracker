@@ -48,7 +48,7 @@
       <Calendar size={14} />
       {formatDate(event.fecha_inicio)}
     </span>
-    <span class="text-md bg-white/20 px-2 py-0.5 rounded-full font-heading"> {event.tipo}</span>
+    <span class="text-sm bg-white/20 px-2 py-0.5 rounded-full font-heading"> {event.tipo}</span>
   </div>
   <div class="p-6 flex flex-col flex-1">
     <h3 class="text-base font-bold text-[--text-primary] leading-snug">{event.nombre}</h3>
