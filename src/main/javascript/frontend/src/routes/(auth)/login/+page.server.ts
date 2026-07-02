@@ -16,14 +16,21 @@ const loginAction: Actions['default'] = async ({ request, cookies }) => {
   const email = normalizeEmail(form.get('email') as string);
   const password = form.get('password') as string;
 
-  if (!email || !password) return fail(400, { error: 'Correo y contraseña requeridos' });
-  if (!isUsfqEmail(email)) return fail(400, { error: 'El correo debe terminar en .usfq.edu.ec' });
+  if (!email || !password) {
+    const msg = 'Correo y contraseña requeridos';
+    return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { email: !email ? msg : '', password: !password ? msg : '' } } });
+  }
+  if (!isUsfqEmail(email)) {
+    const msg = 'El correo debe terminar en .usfq.edu.ec';
+    return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { email: msg } } });
+  }
 
   const res = await apiPost<LoginResponse>('/api/auth/login', { email, password });
 
   if (!res.ok) {
-    const msg = (res.data as any)?.error?.message || 'Credenciales inválidas';
-    return fail(res.status, { error: msg });
+    const apiError = (res.data as any)?.error ?? null;
+    const msg = apiError?.message || 'Credenciales inválidas';
+    return fail(res.status, { error: msg, apiError });
   }
 
   clearAdminSession(cookies);

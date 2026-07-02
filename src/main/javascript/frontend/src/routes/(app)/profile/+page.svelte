@@ -5,11 +5,16 @@
   import Button from '$lib/components/ui/Button.svelte';
   import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
   import FormField from '$lib/components/ui/FormField.svelte';
+  import FormErrorSummary from '$lib/components/ui/FormErrorSummary.svelte';
   import RichTextField from '$lib/components/ui/RichTextField.svelte';
   import AvailabilityPicker from '$lib/components/ui/AvailabilityPicker.svelte';
   import CollaboratorProfileView from '$lib/components/profile/CollaboratorProfileView.svelte';
   import { TelInput } from 'svelte-tel-input';
   import type { CountryCode } from 'svelte-tel-input/types';
+  import { COLLAB_LIMITS, validateAvailabilityForm, validateProfileForm } from '$lib/validation/collaborator';
+  import { extractApiError, mapBackendFields, summarizeFormError } from '$lib/validation/apiError';
+  import { profileFieldMap } from '$lib/validation/fieldMaps';
+  import InfoRow from "$lib/components/ui/InfoRow.svelte";
 
   interface Tag { id: number; name: string; slug: string; category: string; }
 
@@ -97,6 +102,24 @@
   let phoneNumber = $state('');
   let phoneCountry = $state<CountryCode | null>('EC');
   let phoneValid = $state(true);
+  let firstName = $state('');
+  let middleName = $state('');
+  let lastName = $state('');
+  let secondLastName = $state('');
+  let personalEmail = $state('');
+  let dateOfBirth = $state('');
+  let major = $state('');
+  let currentUniversityYear = $state('');
+  let expectedGraduationYear = $state('');
+  let motivationDescription = $state('');
+  let experienceDescription = $state('');
+  let interestInMachinery = $state(false);
+  let interestInDesign = $state(false);
+  let interestInMaterials = $state(false);
+  let touched = $state<Record<string, boolean>>({});
+  let submitAttempted = $state(false);
+  let backendErrors = $state<Record<string, string>>({});
+  let topError = $state('');
 
   // Snapshot of the contact fields that the user can edit, captured when edit
   // mode begins. Used at submit time to compute `sections_updated` precisely.
@@ -131,8 +154,106 @@
     return sections;
   }
 
+  function hasRichTextContent(value: string): boolean {
+    return value.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim() !== '';
+  }
+
+  function markTouched(key: string) {
+    if (!touched[key]) touched = { ...touched, [key]: true };
+    if (backendErrors[key]) {
+      const { [key]: _drop, ...rest } = backendErrors;
+      backendErrors = rest;
+    }
+  }
+
+  const profileFrontErrors = $derived(
+    validateProfileForm({
+      firstName,
+      middleName: middleName || undefined,
+      lastName,
+      secondLastName: secondLastName || undefined,
+      personalEmail: personalEmail || undefined,
+      phoneNumber: phoneNumber || undefined,
+      dateOfBirth: dateOfBirth || undefined,
+      major: major || undefined,
+      currentUniversityYear: currentUniversityYear ? Number(currentUniversityYear) : null,
+      expectedGraduationYear: expectedGraduationYear ? Number(expectedGraduationYear) : null,
+      motivationDescription: motivationDescription || undefined,
+      experienceDescription: experienceDescription || undefined,
+      interestInMachinery,
+      interestInDesign,
+      interestInMaterials,
+    }) as Record<string, string>
+  );
+
+  const availabilityFrontErrors = $derived(
+    validateAvailabilityForm({
+      slots: editingAvailability,
+    }) as Record<string, string>
+  );
+
+  const frontErrors = $derived<Record<string, string>>({
+    ...profileFrontErrors,
+    ...(availabilityFrontErrors.slots ? { availability_slots: availabilityFrontErrors.slots } : {}),
+    ...(!phoneValid && phoneNumber.trim() ? { phoneNumber: 'Número de teléfono inválido' } : {}),
+  });
+
+  const errors = $derived<Record<string, string>>({
+    ...frontErrors,
+    ...backendErrors,
+  });
+
+  const show = $derived<Record<string, boolean>>({
+    firstName: touched.firstName || firstName.trim().length > 0 || submitAttempted,
+    middleName: touched.middleName || middleName.trim().length > 0 || submitAttempted,
+    lastName: touched.lastName || lastName.trim().length > 0 || submitAttempted,
+    secondLastName: touched.secondLastName || secondLastName.trim().length > 0 || submitAttempted,
+    personalEmail: touched.personalEmail || personalEmail.trim().length > 0 || submitAttempted,
+    phoneNumber: touched.phoneNumber || phoneNumber.trim().length > 0 || submitAttempted,
+    dateOfBirth: touched.dateOfBirth || dateOfBirth.trim().length > 0 || submitAttempted,
+    major: touched.major || major.trim().length > 0 || submitAttempted,
+    currentUniversityYear:
+      touched.currentUniversityYear || currentUniversityYear.trim().length > 0 || submitAttempted,
+    expectedGraduationYear:
+      touched.expectedGraduationYear || expectedGraduationYear.trim().length > 0 || submitAttempted,
+    motivationDescription:
+      touched.motivationDescription || hasRichTextContent(motivationDescription) || submitAttempted,
+    experienceDescription:
+      touched.experienceDescription || hasRichTextContent(experienceDescription) || submitAttempted,
+    availability_slots:
+      touched.availability_slots || editingAvailability.length > 0 || submitAttempted,
+  });
+
+  const phoneInputClass = $derived(
+    `block w-full rounded-lg border px-3 py-2.5 text-sm text-[--text-primary] placeholder-[--text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-red] focus:border-[--color-red] transition-colors duration-150 ${
+      show.phoneNumber && errors.phoneNumber ? 'border-red-400' : 'border-[--border]'
+    }`
+  );
+
   function handleProfileEnhance() {
-    return ({ formElement }: { formElement: HTMLFormElement }) => {
+    return ({ formElement, cancel }: { formElement: HTMLFormElement; cancel: () => void }) => {
+      submitAttempted = true;
+      if (Object.keys(frontErrors).length > 0 || tagError) {
+        touched = {
+          ...touched,
+          firstName: true,
+          middleName: true,
+          lastName: true,
+          secondLastName: true,
+          personalEmail: true,
+          phoneNumber: true,
+          dateOfBirth: true,
+          major: true,
+          currentUniversityYear: true,
+          expectedGraduationYear: true,
+          motivationDescription: true,
+          experienceDescription: true,
+          availability_slots: true,
+        };
+        topError = tagError || 'Revisa los campos marcados antes de continuar.';
+        cancel();
+        return;
+      }
       const sectionsAtSubmit = buildSectionsUpdated(formElement);
       return async ({ result, update }: { result: any; update: () => Promise<void> }) => {
         await update();
@@ -163,13 +284,43 @@
       pendingNewTags = [];
       newTagName = '';
       isCreatingTag = false;
+      topError = '';
+      backendErrors = {};
+      touched = {};
+      submitAttempted = false;
+    }
+  });
+
+  $effect(() => {
+    if (form?.apiError !== undefined || form?.error !== undefined) {
+      const extracted = extractApiError(form?.apiError ?? form?.error ?? null);
+      backendErrors = mapBackendFields(extracted.fields, profileFieldMap);
+      topError = summarizeFormError(extracted);
+      submitAttempted = true;
+      const next: Record<string, boolean> = { ...touched };
+      for (const k of Object.keys(backendErrors)) next[k] = true;
+      touched = next;
     }
   });
 
   $effect(() => {
     if (isEditing && data.colaborador) {
       editingAvailability = [...(data.colaborador.availabilitySlots || [])];
+      firstName = data.colaborador.firstName || '';
+      middleName = data.colaborador.middleName || '';
+      lastName = data.colaborador.lastName || '';
+      secondLastName = data.colaborador.secondLastName || '';
+      personalEmail = data.colaborador.personalEmail || '';
       phoneNumber = data.colaborador.phoneNumber || '';
+      dateOfBirth = data.colaborador.dateOfBirth || '';
+      major = data.colaborador.major || '';
+      currentUniversityYear = String(data.colaborador.currentUniversityYear || '');
+      expectedGraduationYear = String(data.colaborador.expectedGraduationYear || '');
+      motivationDescription = data.colaborador.motivationDescription || '';
+      experienceDescription = data.colaborador.experienceDescription || '';
+      interestInMachinery = Boolean(data.colaborador.interestInMachinery);
+      interestInDesign = Boolean(data.colaborador.interestInDesign);
+      interestInMaterials = Boolean(data.colaborador.interestInMaterials);
       originalContactSnapshot = {
         personalEmail: (data.colaborador.personalEmail || '').trim(),
         phoneNumber: (data.colaborador.phoneNumber || '').trim()
@@ -206,6 +357,10 @@
     newTagName = '';
     tagError = '';
     isCreatingTag = false;
+    topError = '';
+    backendErrors = {};
+    touched = {};
+    submitAttempted = false;
   }
 
   const c = $derived(data.colaborador);
@@ -216,7 +371,7 @@
 </svelte:head>
 
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-  <header class="flex items-center justify-between mb-8">
+  <header class="mb-6 flex flex-wrap items-center justify-between gap-4">
     <div>
       <h1 class="text-2xl font-bold text-[--text-primary]">Mi perfil</h1>
       <p class="text-[--text-muted] text-sm mt-0.5">Gestiona tu información en D.Lab</p>
@@ -231,18 +386,66 @@
 
   {:else}
     <!-- Edit mode: Redesigned form layout -->
+    <InfoRow label="Todos los datos registrados son necesarios, por lo que no podemos permitir campos vacíos durante tu registro o modificación de perfil. Los datos registrados se mantendran en nuestros registros. Si bien los puedes cambiar, por políticas internas no se pueden eliminar" icon="Info" classes="text-xs text-red-800" value=""/>
     <form method="POST" action="?/updateProfile" use:enhance={handleProfileEnhance()} class="grid grid-cols-1 md:grid-cols-12 gap-5">
+      <div class="md:col-span-12">
+        <FormErrorSummary message={topError} onDismiss={() => (topError = '')} />
+      </div>
       <div class="md:col-span-4 bg-surface rounded-xl border border-[--border] p-8">
         <h3 class="font-semibold text-[--text-primary] mb-3">Información personal</h3>
         <div class="space-y-4">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField name="firstName" label="Nombre" required value={c.firstName} />
-            <FormField name="middleName" label="Segundo nombre" value={c.middleName} />
-            <FormField name="lastName" label="Apellido" required value={c.lastName} />
-            <FormField name="secondLastName" label="Segundo apellido" value={c.secondLastName} />
+            <FormField
+              name="firstName"
+              label="Nombre"
+              required
+              bind:value={firstName}
+              counter={COLLAB_LIMITS.firstName.max}
+              hint={`Máximo ${COLLAB_LIMITS.firstName.max} caracteres`}
+              error={errors.firstName}
+              touched={show.firstName}
+            />
+            <FormField
+              name="middleName"
+              label="Segundo nombre"
+              bind:value={middleName}
+              counter={COLLAB_LIMITS.middleName.max}
+              hint={`Máximo ${COLLAB_LIMITS.middleName.max} caracteres`}
+              error={errors.middleName}
+              touched={show.middleName}
+            />
+            <FormField
+              name="lastName"
+              label="Apellido"
+              required
+              bind:value={lastName}
+              counter={COLLAB_LIMITS.lastName.max}
+              hint={`Máximo ${COLLAB_LIMITS.lastName.max} caracteres`}
+              error={errors.lastName}
+              touched={show.lastName}
+            />
+            <FormField
+              name="secondLastName"
+              label="Segundo apellido"
+              bind:value={secondLastName}
+              counter={COLLAB_LIMITS.secondLastName.max}
+              hint={`Máximo ${COLLAB_LIMITS.secondLastName.max} caracteres`}
+              error={errors.secondLastName}
+              touched={show.secondLastName}
+            />
           </div>
           <div class="space-y-4">
-            <FormField name="personalEmail" type="email" label="Email personal" value={c.personalEmail} placeholder="tu.correo@gmail.com" />
+            <FormField
+              name="personalEmail"
+              type="email"
+              label="Email personal"
+              bind:value={personalEmail}
+              placeholder="tu.correo@gmail.com"
+              counter={COLLAB_LIMITS.personalEmail.max}
+              hint={`Máximo ${COLLAB_LIMITS.personalEmail.max} caracteres`}
+              error={errors.personalEmail}
+              touched={show.personalEmail}
+            />
             <div class="space-y-1">
               <label for="phone-input" class="block text-md font-bold mb-1" style="font-family: var(--font-subheading);">
                 Teléfono
@@ -252,13 +455,26 @@
                 bind:value={phoneNumber}
                 bind:country={phoneCountry}
                 bind:valid={phoneValid}
+                oninput={() => markTouched('phoneNumber')}
                 options={{ autoPlaceholder: true, spaces: true }}
-                class="block w-full rounded-lg border border-[--border] px-3 py-2.5 text-sm text-[--text-primary] placeholder-[--text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-red] focus:border-[--color-red] transition-colors duration-150"
+                class={phoneInputClass}
                 style="background: var(--bg-surface);"
               />
               <input type="hidden" name="phoneNumber" value={phoneNumber} />
+              {#if show.phoneNumber && errors.phoneNumber}
+                <p class="mt-1 text-xs text-red-500">{errors.phoneNumber}</p>
+              {:else}
+                <p class="mt-1 text-xs text-[--text-muted]">Entre {COLLAB_LIMITS.phoneNumber.min} y {COLLAB_LIMITS.phoneNumber.max} caracteres.</p>
+              {/if}
             </div>
-            <FormField name="dateOfBirth" type="date" label="Fecha de nacimiento" value={c.dateOfBirth} />
+            <FormField
+              name="dateOfBirth"
+              type="date"
+              label="Fecha de nacimiento"
+              bind:value={dateOfBirth}
+              error={errors.dateOfBirth}
+              touched={show.dateOfBirth}
+            />
           </div>
         </div>
       </div>
@@ -279,15 +495,41 @@
       <div class="md:col-span-4 bg-surface rounded-xl border border-[--border] p-8">
         <h3 class="font-semibold text-[--text-primary] mb-3">Académico</h3>
         <div class="space-y-4">
-          <FormField name="major" type="select" label="Carrera" required value={c.major}>
+          <FormField
+            name="major"
+            type="select"
+            label="Carrera"
+            required
+            bind:value={major}
+            error={errors.major}
+            touched={show.major}
+          >
             <option value="">Selecciona tu carrera</option>
             {#each CARRERAS as carrera}
               <option value={carrera}>{carrera}</option>
             {/each}
           </FormField>
           <div class="grid grid-cols-2 gap-4">
-            <FormField name="currentUniversityYear" type="number" label="Semestre actual" min={1} max={12} value={String(c.currentUniversityYear)} />
-            <FormField name="expectedGraduationYear" type="number" label="Año graduación" min={2026} value={String(c.expectedGraduationYear)} />
+            <FormField
+              name="currentUniversityYear"
+              type="number"
+              label="Semestre actual"
+              min={1}
+              max={12}
+              bind:value={currentUniversityYear}
+              hint="Entre 1 y 12"
+              error={errors.currentUniversityYear}
+              touched={show.currentUniversityYear}
+            />
+            <FormField
+              name="expectedGraduationYear"
+              type="number"
+              label="Año graduación"
+              min={2026}
+              bind:value={expectedGraduationYear}
+              error={errors.expectedGraduationYear}
+              touched={show.expectedGraduationYear}
+            />
           </div>
         </div>
       </div>
@@ -334,17 +576,17 @@
           <h3 class="font-semibold text-[--text-primary]">Áreas de interés del D.Lab</h3>
           <label class="flex items-center gap-3 cursor-pointer">
             <input type="hidden" name="interestInMachinery" value="false" />
-            <input type="checkbox" name="interestInMachinery" value="true" checked={c.interestInMachinery} class="h-4 w-4 rounded border-[--border] text-[--color-red]" />
+            <input type="checkbox" name="interestInMachinery" value="true" bind:checked={interestInMachinery} class="h-4 w-4 rounded border-[--border] text-[--color-red]" />
             <span class="text-sm text-[--text-secondary]">Maquinaria (manejo de máquinas)</span>
           </label>
           <label class="flex items-center gap-3 cursor-pointer">
             <input type="hidden" name="interestInDesign" value="false" />
-            <input type="checkbox" name="interestInDesign" value="true" checked={c.interestInDesign} class="h-4 w-4 rounded border-[--border] text-[--color-red]" />
+            <input type="checkbox" name="interestInDesign" value="true" bind:checked={interestInDesign} class="h-4 w-4 rounded border-[--border] text-[--color-red]" />
             <span class="text-sm text-[--text-secondary]">Diseño</span>
           </label>
           <label class="flex items-center gap-3 cursor-pointer">
             <input type="hidden" name="interestInMaterials" value="false" />
-            <input type="checkbox" name="interestInMaterials" value="true" checked={c.interestInMaterials} class="h-4 w-4 rounded border-[--border] text-[--color-red]" />
+            <input type="checkbox" name="interestInMaterials" value="true" bind:checked={interestInMaterials} class="h-4 w-4 rounded border-[--border] text-[--color-red]" />
             <span class="text-sm text-[--text-secondary]">Materiales</span>
           </label>
         </div>
@@ -356,16 +598,36 @@
         <p class="text-xs text-[--text-muted] mb-6">Selecciona los días y horarios en los que estás disponible</p>
         <AvailabilityPicker bind:value={editingAvailability} />
         <input type="hidden" name="availability_slots" value={JSON.stringify(editingAvailability)} />
+        {#if show.availability_slots && errors.availability_slots}
+          <p class="mt-2 text-xs text-red-500">{errors.availability_slots}</p>
+        {/if}
       </div>
 
       <!-- Motivación | Experiencia previa -->
       <div class="md:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-5">
         <div class="bg-surface rounded-xl border border-[--border] p-6">
-          <RichTextField name="motivationDescription" label="Motivación" value={c.motivationDescription} minHeightClass="min-h-[120px]" />
+          <RichTextField
+            name="motivationDescription"
+            label="Motivación"
+            value={motivationDescription}
+            minHeightClass="min-h-[120px]"
+            onchange={(html) => { motivationDescription = html; markTouched('motivationDescription'); }}
+            hint={`Mínimo ${COLLAB_LIMITS.motivationDescription.min} caracteres`}
+            error={errors.motivationDescription}
+            touched={show.motivationDescription}
+          />
         </div>
 
         <div class="bg-surface rounded-xl border border-[--border] p-6">
-          <RichTextField name="experienceDescription" label="Experiencia previa" value={c.experienceDescription} minHeightClass="min-h-[120px]" />
+          <RichTextField
+            name="experienceDescription"
+            label="Experiencia previa"
+            value={experienceDescription}
+            minHeightClass="min-h-[120px]"
+            onchange={(html) => { experienceDescription = html; markTouched('experienceDescription'); }}
+            error={errors.experienceDescription}
+            touched={show.experienceDescription}
+          />
         </div>
       </div>
 

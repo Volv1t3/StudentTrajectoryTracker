@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { verifyAdminToken } from '../middleware/auth.js';
 import { validate } from '../validators/validate.js';
+import { adminPasswordResetRequestSchema } from '../validators/auth.validator.js';
 import { createProjectSchema, updateProjectSchema, updateProjectVisibilitySchema } from '../validators/project.validator.js';
 import { createEventSchema, updateEventSchema, updateEventVisibilitySchema } from '../validators/event.validator.js';
 import { reviewApplicationSchema, createAssignmentSchema, endAssignmentSchema, updateAssignmentSchema } from '../validators/application.validator.js';
@@ -16,6 +17,7 @@ import * as projects from '../controllers/admin.project.controller.js';
 import * as events from '../controllers/admin.event.controller.js';
 import * as tags from '../controllers/admin.tag.controller.js';
 import * as content from '../controllers/admin.content.controller.js';
+import * as adminAuth from '../controllers/admin.auth.controller.js';
 
 const router = Router();
 router.use(verifyAdminToken);
@@ -50,6 +52,7 @@ router.get('/administrators', administrators.list);
 router.get('/administrators/:id', administrators.getById);
 router.post('/administrators', validate(adminAdministratorSchema), administrators.create);
 router.put('/administrators/:id', validate(adminAdministratorSchema), administrators.update);
+router.post('/administrators/send-password-reset', validate(adminPasswordResetRequestSchema), adminAuth.sendPasswordReset);
 router.delete('/administrators/:id', administrators.remove);
 
 router.get('/applications', applications.list);

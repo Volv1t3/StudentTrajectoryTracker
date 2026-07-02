@@ -148,10 +148,13 @@ export async function listAdmin({ projectId, collaboratorId, status } = {}) {
       c.usfq_email AS collaborator_usfq_email,
       p.title AS project_title,
       p.slug AS project_slug,
-      CONCAT_WS(' ', ad.first_name, NULLIF(ad.middle_name, ''), ad.last_name, NULLIF(ad.second_last_name, '')) AS assigned_by_admin_name
+      CONCAT_WS(' ', ad.first_name, NULLIF(ad.middle_name, ''), ad.last_name, NULLIF(ad.second_last_name, '')) AS assigned_by_admin_name,
+      ap.reason_for_applying as assignment_reason,
+      ap.admin_notes as assignment_admin_notes
      FROM assignments a
      JOIN collaborators c ON c.id = a.collaborator_id
      JOIN projects p ON p.id = a.project_id
+     JOIN applications ap ON ap.id = a.application_id
      LEFT JOIN administrators ad ON ad.id = a.assigned_by_admin_id
      WHERE ${where}
      ORDER BY a.assigned_at DESC`,

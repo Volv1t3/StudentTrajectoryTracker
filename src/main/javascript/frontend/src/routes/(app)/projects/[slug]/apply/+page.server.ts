@@ -78,15 +78,18 @@ export const actions: Actions = {
     const disponibilidad_confirmada = data.get('disponibilidad_confirmada');
 
     if (!project_id) {
-      return fail(400, { errors: { mensaje_motivacion: 'Proyecto inválido' } });
+      const msg = 'Proyecto inválido';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { project_id: msg, reason_for_applying: msg } } });
     }
 
     if (!reason_for_applying || reason_for_applying.length < 20) {
-      return fail(400, { errors: { mensaje_motivacion: 'Mínimo 20 caracteres' } });
+      const msg = 'Mínimo 20 caracteres';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { reason_for_applying: msg } } });
     }
 
     if (!disponibilidad_confirmada) {
-      return fail(400, { errors: { disponibilidad_confirmada: 'Debes confirmar tu disponibilidad' } });
+      const msg = 'Debes confirmar tu disponibilidad';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { disponibilidad_confirmada: msg } } });
     }
 
     const [projectRes, appsRes, assignmentsRes, profileRes] = await Promise.all([
@@ -131,7 +134,9 @@ export const actions: Actions = {
     });
 
     if (!res.ok) {
-      return fail(res.status, { error: getErrorMessage(res.data, 'No se pudo enviar la solicitud') });
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'No se pudo enviar la solicitud';
+      return fail(res.status, { error: msg, apiError });
     }
 
     return { success: true };

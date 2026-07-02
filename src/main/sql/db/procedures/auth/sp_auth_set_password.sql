@@ -22,7 +22,7 @@ BEGIN
            updated_at    = NOW()
     WHERE  id            = p_collaborator_id;
 
-    CALL sp_auth_revoke_all_user_tokens('collaborator', p_collaborator_id);
+    CALL sp_auth_revoke_all_user_tokens('Colaborador', p_collaborator_id);
 
     CALL sp_audit_write(
       'system', NULL, 'update',

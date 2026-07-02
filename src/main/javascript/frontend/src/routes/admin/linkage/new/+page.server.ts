@@ -197,15 +197,18 @@ export const actions: Actions = {
     const reasonForLinking = String(form.get('reason_for_linking') || '').trim();
 
     if (!projectId) {
-      return fail(400, { error: 'Selecciona un proyecto válido' });
+      const msg = 'Selecciona un proyecto válido';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { project_id: msg } } });
     }
 
     if (!collaboratorId) {
-      return fail(400, { error: 'Selecciona un colaborador válido' });
+      const msg = 'Selecciona un colaborador válido';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { collaborator_id: msg } } });
     }
 
     if (reasonForLinking.length < 20) {
-      return fail(400, { error: 'El motivo de vinculación debe tener al menos 20 caracteres' });
+      const msg = 'El motivo de vinculación debe tener al menos 20 caracteres';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { reason_for_linking: msg } } });
     }
 
     const body: ManualLinkagePayload = {
@@ -218,9 +221,9 @@ export const actions: Actions = {
 
     const res = await apiPost('/api/admin/assignments', body, token);
     if (!res.ok) {
-      return fail(res.status, {
-        error: getErrorMessage(res.data, 'No se pudo crear la vinculación manual'),
-      });
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'No se pudo crear la vinculación manual';
+      return fail(res.status, { error: msg, apiError });
     }
 
     throw redirect(303, '/admin/linkage');

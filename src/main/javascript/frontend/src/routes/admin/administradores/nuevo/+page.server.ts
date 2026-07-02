@@ -12,9 +12,18 @@ export const actions: Actions = {
     const confirmPassword = form.get('confirmPassword') as string;
 
     const passwordError = validatePasswordPolicy(password);
-    if (passwordError) return fail(400, { error: passwordError });
+    if (passwordError) {
+      return fail(400, {
+        error: passwordError,
+        apiError: { code: 'ERR_VALIDATION', message: passwordError, fields: { password: passwordError } },
+      });
+    }
     if (password !== confirmPassword) {
-      return fail(400, { error: 'Las contraseñas no coinciden.' });
+      const msg = 'Las contraseñas no coinciden';
+      return fail(400, {
+        error: msg,
+        apiError: { code: 'ERR_VALIDATION', message: msg, fields: { confirmPassword: msg } },
+      });
     }
 
     const body = {
@@ -30,7 +39,11 @@ export const actions: Actions = {
     };
 
     const res = await apiPost('/api/admin/administrators', body, token);
-    if (!res.ok) return fail(res.status, { error: (res.data as any)?.error?.message || 'Error al crear administrador' });
+    if (!res.ok) {
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'Error al crear administrador';
+      return fail(res.status, { error: msg, apiError });
+    }
     throw redirect(303, '/admin/administradores');
   },
 };

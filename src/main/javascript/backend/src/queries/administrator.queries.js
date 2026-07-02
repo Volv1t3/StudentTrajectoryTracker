@@ -70,6 +70,13 @@ export async function update(id, data, actorId, ipAddress) {
   }
 }
 
+export async function updatePassword(id, passwordHash) {
+  await pool.execute(
+    'UPDATE administrators SET password_hash = ?, updated_at = NOW() WHERE id = ?',
+    [passwordHash, id]
+  );
+}
+
 export async function remove(id, actorId, ipAddress) {
   await pool.execute('DELETE FROM administrators WHERE id = ?', [id]);
   await pool.execute(

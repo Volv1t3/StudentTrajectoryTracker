@@ -10,7 +10,7 @@ DROP PROCEDURE IF EXISTS sp_auth_store_refresh_token;
 DELIMITER $$
 
 CREATE PROCEDURE sp_auth_store_refresh_token(
-  IN  p_user_type   ENUM('administrator','collaborator'),
+  IN  p_user_type   ENUM('Administrador','Colaborador'),
   IN  p_user_id     INT UNSIGNED,
   IN  p_token_hash  VARCHAR(255),
   IN  p_expires_at  TIMESTAMP,

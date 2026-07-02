@@ -1,9 +1,15 @@
 <script lang="ts">
+  import { enhance, applyAction } from '$app/forms';
+  import { untrack } from 'svelte';
   import { Search } from 'lucide-svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
   import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import RichTextField from '$lib/components/ui/RichTextField.svelte';
+  import FormErrorSummary from '$lib/components/ui/FormErrorSummary.svelte';
+  import { validateReviewApplicationForm, APPLICATION_LIMITS } from '$lib/validation/application';
+  import { extractApiError, mapBackendFields, summarizeFormError } from '$lib/validation/apiError';
+  import { applicationFieldMap } from '$lib/validation/fieldMaps';
 
   type ProjectCategory = {
     id: number;
@@ -29,6 +35,7 @@
     responsible_admin_id: number | null;
     responsible_admin_name: string;
     responsible_admin_email: string | null;
+    role_in_project: string | null;
   };
 
   interface Props {
@@ -42,6 +49,7 @@
     };
     form?: {
       error?: string;
+      apiError?: unknown;
     };
   }
 
@@ -53,7 +61,10 @@
   let selectedApplicationId = $state<number | null>(null);
   let reviewNotes = $state('');
   let roleInProject = $state('');
-  let modalError = $state('');
+  let backendErrors = $state<Record<string, string>>({});
+  let touched = $state<Record<string, boolean>>({});
+  let submitAttempted = $state(false);
+  let topError = $state('');
 
   let approveForm = $state<HTMLFormElement | null>(null);
   let rejectForm = $state<HTMLFormElement | null>(null);
@@ -83,32 +94,112 @@
     selectedApplicationId = application.id;
     reviewNotes = application.admin_notes || '';
     roleInProject = '';
-    modalError = '';
+    backendErrors = {};
+    touched = {};
+    submitAttempted = false;
+    topError = '';
   }
 
   function closeReviewModal() {
     selectedApplicationId = null;
     reviewNotes = '';
     roleInProject = '';
-    modalError = '';
+    backendErrors = {};
+    touched = {};
+    submitAttempted = false;
+    topError = '';
   }
 
+  function stripHtml(html: string): string {
+    return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+  }
+
+  const reviewNotesPlain = $derived(stripHtml(reviewNotes));
+
+  function markTouched(key: string) {
+    if (!touched[key]) touched = { ...touched, [key]: true };
+    if (backendErrors[key]) {
+      const { [key]: _drop, ...rest } = backendErrors;
+      backendErrors = rest;
+    }
+  }
+
+  function validateFor(status: 'Aprobada' | 'Rechazada' | 'En_Revisión') {
+    return validateReviewApplicationForm({
+      status,
+      admin_notes: reviewNotesPlain || undefined,
+      role_in_project: roleInProject || undefined,
+    }) as Record<string, string>;
+  }
+
+  const reviewErrors = $derived(validateFor('En_Revisión'));
+  const rejectErrors = $derived(validateFor('Rechazada'));
+  const approveErrors = $derived(validateFor('Aprobada'));
+
+  const activeFrontErrors = $derived.by(() => {
+    if (isPending) return reviewErrors;
+    if (isInReview) return { ...approveErrors, ...rejectErrors };
+    return approveErrors;
+  });
+
+  const mergedErrors = $derived<Record<string, string>>({
+    ...activeFrontErrors,
+    ...backendErrors,
+  });
+
+  const show = $derived<Record<string, boolean>>({
+    role_in_project: touched.role_in_project || roleInProject.trim().length > 0 || submitAttempted,
+    admin_notes: touched.admin_notes || reviewNotesPlain.length > 0 || submitAttempted,
+  });
+
+  $effect(() => {
+    if (form?.apiError !== undefined || form?.error !== undefined) {
+      const extracted = extractApiError(form?.apiError ?? form?.error ?? null);
+      const mappedBackendErrors = mapBackendFields(extracted.fields, applicationFieldMap);
+      const nextTopError = summarizeFormError(extracted);
+      const nextTouched: Record<string, boolean> = { ...untrack(() => touched) };
+      for (const k of Object.keys(mappedBackendErrors)) nextTouched[k] = true;
+
+      backendErrors = mappedBackendErrors;
+      topError = nextTopError;
+      submitAttempted = true;
+      touched = nextTouched;
+    }
+  });
+
   function submitApproval() {
-    modalError = '';
+    submitAttempted = true;
+    const errs = validateFor('Aprobada');
+    if (Object.keys(errs).length > 0) {
+      touched = { ...touched, role_in_project: true, admin_notes: true };
+      topError = 'Revisa los campos marcados antes de continuar.';
+      return;
+    }
+    topError = '';
     approveForm?.requestSubmit();
   }
 
   function submitInReview() {
-    modalError = '';
+    submitAttempted = true;
+    const errs = validateFor('En_Revisión');
+    if (Object.keys(errs).length > 0) {
+      touched = { ...touched, role_in_project: true, admin_notes: true };
+      topError = 'Revisa los campos marcados antes de continuar.';
+      return;
+    }
+    topError = '';
     reviewForm?.requestSubmit();
   }
 
   function submitRejection() {
-    if (!reviewNotes.replace(/<[^>]*>/g, '').trim()) {
-      modalError = 'Debes ingresar un motivo de rechazo.';
+    submitAttempted = true;
+    const errs = validateFor('Rechazada');
+    if (Object.keys(errs).length > 0) {
+      touched = { ...touched, role_in_project: true, admin_notes: true };
+      topError = 'Revisa los campos marcados antes de continuar.';
       return;
     }
-    modalError = '';
+    topError = '';
     rejectForm?.requestSubmit();
   }
 
@@ -121,6 +212,17 @@
   const isReadOnly = $derived(
     !selectedApplication || ['Aprobada', 'Rechazada', 'Retirada'].includes(selectedApplication.status),
   );
+
+  function handleReviewAction() {
+    return async ({ result, update }: { result: any; update: (options?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> }) => {
+      if (result?.type === 'success') {
+        closeReviewModal();
+        await update({ reset: false, invalidateAll: true });
+        return;
+      }
+      await applyAction(result);
+    };
+  }
 </script>
 
 <svelte:head>
@@ -313,22 +415,14 @@
           <label for="role_in_project" class="block text-sm font-semibold text-[--text-primary] mb-1">Rol en el proyecto</label>
           {#if isReadOnly}
             <div class="w-full rounded-lg border border-[--border] bg-[--bg-secondary] px-3 py-2.5 text-sm text-[--text-secondary]">
-              {roleInProject || 'Sin rol registrado'}
+              {selectedApplication.role_in_project || 'Sin rol registrado'}
             </div>
-          {:else}
-            <input
-              id="role_in_project"
-              type="text"
-              bind:value={roleInProject}
-              placeholder="Opcional"
-              class="w-full rounded-lg border border-[--border] bg-[--bg-secondary] px-3 py-2.5 text-sm"
-            />
           {/if}
         </div>
         <div>
           <p class="block text-sm font-semibold text-[--text-primary] mb-1">Estado actual</p>
-          <div class="pt-2">
-            <StatusBadge status={selectedApplication.status} />
+          <div class="w-full rounded-lg border border-[--border] bg-[--bg-secondary] px-3 py-2.5 text-sm text-[--text-secondary]">
+            <StatusBadge status={selectedApplication.status || 'Sin rol registrado'}/>
           </div>
         </div>
       </div>
@@ -354,18 +448,18 @@
             name="admin_notes"
             label=""
             value={reviewNotes}
-            placeholder="En caso de rechazo, este campo es obligatorio y será visible para el colaborador. En retiro es opcional."
+            placeholder="En caso de rechazo, este campo es obligatorio y será visible para el colaborador."
             minHeightClass="min-h-[100px]"
-            onchange={(html) => { reviewNotes = html; }}
+            onchange={(html) => { reviewNotes = html; markTouched('admin_notes'); }}
+            counter={APPLICATION_LIMITS.admin_notes.max}
+            hint={`Máximo ${APPLICATION_LIMITS.admin_notes.max} caracteres`}
+            error={mergedErrors.admin_notes}
+            touched={show.admin_notes}
           />
         {/if}
       </div>
 
-      {#if modalError}
-        <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {modalError}
-        </div>
-      {/if}
+      <FormErrorSummary message={topError} onDismiss={() => (topError = '')} />
 
       <div class="flex flex-wrap justify-end gap-2">
         {#if canSetInReview}
@@ -380,16 +474,16 @@
         <Button variant="primary" label="Cancelar" onclick={closeReviewModal} />
       </div>
 
-      <form bind:this={reviewForm} method="POST" action="?/setInReview" class="hidden">
+      <form bind:this={reviewForm} method="POST" action="?/setInReview" use:enhance={handleReviewAction} class="hidden">
         <input type="hidden" name="application_id" value={selectedApplication.id} />
         <input type="hidden" name="admin_notes" value={reviewNotes} />
       </form>
 
-      <form bind:this={rejectForm} method="POST" action="?/reject" class="hidden">
+      <form bind:this={rejectForm} method="POST" action="?/reject" use:enhance={handleReviewAction} class="hidden">
         <input type="hidden" name="application_id" value={selectedApplication.id} />
         <input type="hidden" name="admin_notes" value={reviewNotes} />
       </form>
-      <form bind:this={approveForm} method="POST" action="?/approve" class="hidden">
+      <form bind:this={approveForm} method="POST" action="?/approve" use:enhance={handleReviewAction} class="hidden">
         <input type="hidden" name="application_id" value={selectedApplication.id} />
         <input type="hidden" name="admin_notes" value={reviewNotes} />
         <input type="hidden" name="role_in_project" value={roleInProject} />

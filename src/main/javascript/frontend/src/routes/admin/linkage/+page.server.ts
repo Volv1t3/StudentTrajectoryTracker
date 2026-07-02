@@ -99,6 +99,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 
   const assignmentPayload = assignmentsRes.ok ? normalizeAssignmentResponse(assignmentsRes.data) : { rows: [], summary: undefined };
 
+  // console.log(assignmentPayload) This is being received and has the two mapped filters
   const summary: AssignmentSummary = assignmentsRes.ok
     ? {
         total: Number(assignmentPayload.summary?.total || assignmentPayload.rows.length || 0),
@@ -168,10 +169,12 @@ export const actions: Actions = {
 
     const res = await apiPatch(`/api/admin/assignments/${id}`, body, token);
     if (!res.ok) {
+      const apiError = (res.data as any)?.error ?? null;
       return fail(res.status, {
         scope: 'edit',
         assignmentId: Number(id),
         error: getErrorMessage(res.data, 'No se pudo actualizar la vinculación'),
+        apiError,
       });
     }
 
@@ -185,10 +188,12 @@ export const actions: Actions = {
     const res = await apiDelete(`/api/admin/assignments/${id}`, token);
 
     if (!res.ok) {
+      const apiError = (res.data as any)?.error ?? null;
       return fail(res.status, {
         scope: 'edit',
         assignmentId: Number(id),
         error: getErrorMessage(res.data, 'No se pudo eliminar la vinculación'),
+        apiError,
       });
     }
 

@@ -6,6 +6,10 @@
   import { PASSWORD_POLICY_HINT } from '$lib/utils/password';
   import FormField from '$lib/components/ui/FormField.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import FormErrorSummary from '$lib/components/ui/FormErrorSummary.svelte';
+  import { validateActivateForm } from '$lib/validation/auth';
+  import { extractApiError, mapBackendFields, summarizeFormError } from '$lib/validation/apiError';
+  import { authFieldMap } from '$lib/validation/fieldMaps';
 
   interface Props {
     data: { valid: boolean; token?: string; reason?: string };
@@ -14,15 +18,49 @@
 
   let { data, form }: Props = $props();
 
-  function handleActivateEnhance() {
+  let password = $state('');
+  let touched = $state<Record<string, boolean>>({});
+  let submitAttempted = $state(false);
+  let backendErrors = $state<Record<string, string>>({});
+  let topError = $state('');
+
+  const tokenValue = $derived(data.token || ($page.url.searchParams.get('token') || ''));
+
+  let frontErrors = $derived(
+    validateActivateForm({ token: tokenValue, password }) as Record<string, string>
+  );
+
+  let show = $derived<Record<string, boolean>>({
+    password: touched.password || password.length > 0 || submitAttempted,
+  });
+
+  let errors = $derived<Record<string, string>>({ ...frontErrors, ...backendErrors });
+  let isValid = $derived(Object.keys(frontErrors).length === 0);
+
+  $effect(() => {
+    if (form?.apiError !== undefined || form?.error !== undefined) {
+      const extracted = extractApiError(form?.apiError ?? form?.error ?? null);
+      backendErrors = mapBackendFields(extracted.fields, authFieldMap);
+      topError = summarizeFormError(extracted);
+      submitAttempted = true;
+      const next: Record<string, boolean> = { ...touched };
+      for (const k of Object.keys(backendErrors)) next[k] = true;
+      touched = next;
+    }
+  });
+
+  function handleActivateEnhance({ cancel }: { cancel: () => void }) {
+    submitAttempted = true;
+    if (Object.keys(frontErrors).length > 0) {
+      const next: Record<string, boolean> = {};
+      for (const k of Object.keys(frontErrors)) next[k] = true;
+      touched = { ...touched, ...next };
+      topError = 'Revisa los campos marcados antes de continuar.';
+      cancel();
+      return;
+    }
     return async ({ result }: { result: any }) => {
       if (result.type === 'redirect' || result.type === 'success') {
-        // Frontend complement to backend authoritative `account_activated`
-        // emitted by `auth.controller.js#activate` after the password is set
-        // and the token is marked used. The activated collaborator's stable
-        // ID is identified server-side as `collaborator:{id}`; the visitor
-        // will be identified on the next authenticated page load via the
-        // root +layout.svelte effect.
         capture('account_activated', {
           route: '/activate',
           route_group: 'auth',
@@ -60,20 +98,22 @@
         <h1 class="text-2xl font-bold text-[--text-primary]">Activa tu cuenta</h1>
         <p class="text-[--text-muted] text-sm mt-1">Elige una contraseña para completar tu registro</p>
       </header>
+      {#if topError}
+        <FormErrorSummary message={topError} onDismiss={() => (topError = '')} />
+      {/if}
       <form method="POST" action="?/activate" use:enhance={handleActivateEnhance} class="space-y-4">
-        <input type="hidden" name="token" value={data.token || $page.url.searchParams.get('token') || ''} />
+        <input type="hidden" name="token" value={tokenValue} />
         <FormField
           name="password"
           type="password"
           label="Nueva contraseña"
           required
           hint={PASSWORD_POLICY_HINT}
-          error={form?.errors?.password}
+          bind:value={password}
+          error={errors.password || errors.contrasena}
+          touched={show.password}
         />
-        {#if form?.error}
-          <p class="text-sm text-red-600">{form.error}</p>
-        {/if}
-        <Button type="submit" variant="primary" fullWidth label="Activar mi cuenta" />
+        <Button type="submit" variant="primary" fullWidth label="Activar mi cuenta" disabled={submitAttempted && !isValid} />
       </form>
     </div>
   {/if}

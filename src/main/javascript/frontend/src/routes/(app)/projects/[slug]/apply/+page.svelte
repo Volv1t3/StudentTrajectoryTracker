@@ -4,6 +4,10 @@
   import Button from '$lib/components/ui/Button.svelte';
   import RichTextField from '$lib/components/ui/RichTextField.svelte';
   import MetaChip from '$lib/components/ui/MetaChip.svelte';
+  import FormErrorSummary from '$lib/components/ui/FormErrorSummary.svelte';
+  import { validateSubmitApplicationForm, APPLICATION_LIMITS } from '$lib/validation/application';
+  import { extractApiError, mapBackendFields, summarizeFormError } from '$lib/validation/apiError';
+  import { applicationFieldMap } from '$lib/validation/fieldMaps';
 
   interface Project {
     id: number;
@@ -30,25 +34,60 @@
     form: any;
   }
 
-
-
-
   let { data, form }: Props = $props();
 
-
   let motivacionText = $state('');
+  let consentChecked = $state(false);
 
-  const plainTextLength = $derived(motivacionText.replace(/<[^>]*>/g, '').trim().length);
+  let touched = $state<Record<string, boolean>>({});
+  let submitAttempted = $state(false);
+  let backendErrors = $state<Record<string, string>>({});
+  let topError = $state('');
 
-  const motivacionError = $derived.by(() => {
-    if (!motivacionText || plainTextLength === 0) return '';
-    if (plainTextLength < 100) {
-      return `Mínimo 100 caracteres (faltan ${100 - plainTextLength})`;
-    }
+  function stripHtml(s: string) {
+    return s.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+  }
+
+  const plainTextLength = $derived(stripHtml(motivacionText).length);
+
+  let frontErrors = $derived(
+    validateSubmitApplicationForm({
+      project_id: data.project.id,
+      reason_for_applying: stripHtml(motivacionText),
+    }) as Record<string, string>
+  );
+
+  // Local UI rule: still require minimum 100 chars to match prior UX.
+  let extraMotivacionError = $derived.by(() => {
+    if (plainTextLength === 0) return '';
+    if (plainTextLength < 100) return `Mínimo 100 caracteres (faltan ${100 - plainTextLength})`;
     return '';
   });
 
-  const canSubmit = $derived(plainTextLength >= 100);
+  let show = $derived<Record<string, boolean>>({
+    mensaje_motivacion: touched.mensaje_motivacion || plainTextLength > 0 || submitAttempted,
+    disponibilidad_confirmada: touched.disponibilidad_confirmada || consentChecked || submitAttempted,
+  });
+
+  let errors = $derived<Record<string, string>>({
+    ...frontErrors,
+    ...backendErrors,
+    ...(extraMotivacionError ? { mensaje_motivacion: extraMotivacionError } : {}),
+  });
+
+  let isValid = $derived(plainTextLength >= 100 && consentChecked);
+
+  $effect(() => {
+    if (form?.apiError !== undefined || form?.error !== undefined) {
+      const extracted = extractApiError(form?.apiError ?? form?.error ?? null);
+      backendErrors = mapBackendFields(extracted.fields, applicationFieldMap);
+      topError = summarizeFormError(extracted);
+      submitAttempted = true;
+      const next: Record<string, boolean> = { ...touched };
+      for (const k of Object.keys(backendErrors)) next[k] = true;
+      touched = next;
+    }
+  });
 </script>
 
 <svelte:head>
@@ -128,33 +167,54 @@
       </div>
     </div>
 
-    <form method="POST" action="?/applyToProject" use:enhance class="bg-surface rounded-xl border border-[--border] p-6 space-y-5">
+    <form
+      method="POST"
+      action="?/applyToProject"
+      use:enhance={({ cancel }) => {
+        submitAttempted = true;
+        if (!isValid || Object.keys(frontErrors).length > 0 || extraMotivacionError) {
+          touched = { ...touched, mensaje_motivacion: true, disponibilidad_confirmada: true };
+          topError = 'Revisa los campos marcados antes de continuar.';
+          cancel();
+          return;
+        }
+        return async ({ update }) => { await update(); };
+      }}
+      class="bg-surface rounded-xl border border-[--border] p-6 space-y-5"
+    >
       <input type="hidden" name="proyecto_id" value={data.project.id} />
+      <FormErrorSummary message={topError} onDismiss={() => (topError = '')} />
       <RichTextField
         name="mensaje_motivacion"
         label="¿Por qué quieres unirte a este proyecto?"
         required
         placeholder="Describe tu interés específico... (mínimo 100 caracteres)"
         minHeightClass="min-h-[160px]"
-        onchange={(html) => { motivacionText = html; }}
+        onchange={(html) => { motivacionText = html; if (!touched.mensaje_motivacion) touched = { ...touched, mensaje_motivacion: true }; }}
+        counter={APPLICATION_LIMITS.reason_for_applying.max}
+        hint={`Mínimo 100 caracteres, máximo ${APPLICATION_LIMITS.reason_for_applying.max}`}
+        error={errors.mensaje_motivacion || errors.reason_for_applying}
+        touched={show.mensaje_motivacion}
       />
-      {#if motivacionError || form?.errors?.mensaje_motivacion}
-        <p class="text-xs text-red-500 mt-1">{motivacionError || form.errors.mensaje_motivacion}</p>
-      {/if}
       <div>
         <label class="flex items-start gap-3 cursor-pointer">
-          <input type="checkbox" name="disponibilidad_confirmada" class="mt-0.5 h-4 w-4 rounded border-[--border] text-[--color-red] focus:ring-[--color-red]" />
+          <input
+            type="checkbox"
+            name="disponibilidad_confirmada"
+            bind:checked={consentChecked}
+            class="mt-0.5 h-4 w-4 rounded border-[--border] text-[--color-red] focus:ring-[--color-red]"
+          />
           <span class="text-sm text-[--text-secondary] leading-relaxed">
             Confirmo que tengo disponibilidad de <strong>{data.project.disponibilidad_semanal_requerida}</strong> para este proyecto.
             <span class="text-red-500">*</span>
           </span>
         </label>
-        {#if form?.errors?.disponibilidad_confirmada}
-          <p class="text-xs text-red-500 mt-1 ml-7">{form.errors.disponibilidad_confirmada}</p>
+        {#if show.disponibilidad_confirmada && !consentChecked}
+          <p class="text-xs text-red-500 mt-1 ml-7">Debes confirmar tu disponibilidad</p>
         {/if}
       </div>
       <div class="flex gap-3 pt-1">
-        <Button type="submit" variant="primary" label="Enviar solicitud" disabled={!canSubmit} />
+        <Button type="submit" variant="primary" label="Enviar solicitud" disabled={submitAttempted ? ( motivacionText.length === 0) : ( !submitAttempted && !isValid)} />
         <Button type="button" variant="secondary" href={`/projects/${data.project.slug}`} label="Cancelar" />
       </div>
     </form>

@@ -1,8 +1,9 @@
 import type { PageServerLoad, Actions } from './$types';
 import { error, fail, redirect } from '@sveltejs/kit';
-import { apiGet, apiPut } from '$lib/server/api';
+import { apiDelete, apiGet, apiPut } from '$lib/server/api';
 import { getAdminAccessToken } from '$lib/server/auth';
 import { loadAdministratorOptions } from '$lib/server/admin-administrators';
+import { validateBucketUpload } from '$lib/server/upload-limits';
 import type { Event } from '$lib/types';
 import {
   buildEventWarningRedirect,
@@ -88,6 +89,14 @@ export const actions: Actions = {
     const capacityRaw = form.get('cupo_maximo')?.toString().trim();
     const bannerImageFile = form.get('banner_image_file');
     const posterImageFile = form.get('poster_image_file');
+    const bannerUploadError = validateBucketUpload(bannerImageFile, 'El banner');
+    if (bannerUploadError) {
+      return fail(400, { error: bannerUploadError, apiError: { code: 'ERR_UPLOAD', message: bannerUploadError } });
+    }
+    const posterUploadError = validateBucketUpload(posterImageFile, 'El afiche');
+    if (posterUploadError) {
+      return fail(400, { error: posterUploadError, apiError: { code: 'ERR_UPLOAD', message: posterUploadError } });
+    }
     const bannerImageUrl = toNullable(form.get('banner_image_url'));
     const posterImageUrl = toNullable(form.get('poster_image_url'));
 
@@ -114,8 +123,9 @@ export const actions: Actions = {
 
     const res = await apiPut(`/api/admin/events/${params.id}`, body, token);
     if (!res.ok) {
-      const msg = (res.data as any)?.error?.message || 'Error al guardar el evento';
-      return fail(res.status, { error: msg });
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'Error al guardar el evento';
+      return fail(res.status, { error: msg, apiError });
     }
 
     const eventId = Number(params.id);
@@ -171,5 +181,16 @@ export const actions: Actions = {
     }
 
     throw redirect(302, '/admin/events');
-  }
+  },
+  deleteEvent: async ({ params, cookies }) => {
+    const token = getAdminAccessToken(cookies)!;
+    const res = await apiDelete(`/api/admin/events/${params.id}`, token);
+    if (!res.ok) {
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'Error al eliminar el evento';
+      return fail(res.status, { error: msg, apiError });
+    }
+
+    throw redirect(302, '/admin/events');
+  },
 };

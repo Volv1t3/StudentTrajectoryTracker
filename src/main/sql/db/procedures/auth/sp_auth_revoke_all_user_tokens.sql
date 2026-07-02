@@ -9,7 +9,7 @@ DROP PROCEDURE IF EXISTS sp_auth_revoke_all_user_tokens;
 DELIMITER $$
 
 CREATE PROCEDURE sp_auth_revoke_all_user_tokens(
-  IN p_user_type ENUM('administrator','collaborator'),
+  IN p_user_type ENUM('Administrador','Colaborador'),
   IN p_user_id   INT UNSIGNED
 )
 BEGIN

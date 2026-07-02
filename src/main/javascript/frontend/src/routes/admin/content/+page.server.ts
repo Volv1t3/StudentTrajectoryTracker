@@ -113,8 +113,10 @@ function pickError(data: unknown): string {
 }
 
 const ok = (scope: string) => ({ success: true as const, scope, error: null });
-const ko = (status: number, scope: string, error: string) =>
-  fail(status, { success: false as const, scope, error });
+const pickApiError = (data: unknown) =>
+  ((data as { error?: unknown } | null)?.error ?? null);
+const ko = (status: number, scope: string, error: string, apiError?: unknown) =>
+  fail(status, { success: false as const, scope, error, apiError: apiError ?? null });
 
 // =============================================================================
 // ACTIONS — payload shapes match backend validators exactly (snake_case).
@@ -142,7 +144,7 @@ export const actions: Actions = {
       background_image_url: currentHero?.background_image_url ?? null,
     };
     const res = await apiPut('/api/admin/content/home_hero', payload, token);
-    if (!res.ok) return ko(res.status, 'home_hero', pickError(res.data));
+    if (!res.ok) return ko(res.status, 'home_hero', pickError(res.data), pickApiError(res.data));
     return ok('home_hero');
   },
 
@@ -159,7 +161,7 @@ export const actions: Actions = {
       vision_body: strOrNull(f, 'vision_body'),
     };
     const res = await apiPut('/api/admin/content/dlab_identity', payload, token);
-    if (!res.ok) return ko(res.status, 'dlab_identity', pickError(res.data));
+    if (!res.ok) return ko(res.status, 'dlab_identity', pickError(res.data), pickApiError(res.data));
     return ok('dlab_identity');
   },
 
@@ -182,7 +184,7 @@ export const actions: Actions = {
       is_visible: bool(f, 'is_visible'),
     };
     const res = await apiPost('/api/admin/content/value_propositions', payload, token);
-    if (!res.ok) return ko(res.status, 'value_propositions:create', pickError(res.data));
+    if (!res.ok) return ko(res.status, 'value_propositions:create', pickError(res.data), pickApiError(res.data));
     return ok('value_propositions:create');
   },
 
@@ -200,7 +202,7 @@ export const actions: Actions = {
       is_visible: bool(f, 'is_visible'),
     };
     const res = await apiPut(`/api/admin/content/value_propositions/${id}`, payload, token);
-    if (!res.ok) return ko(res.status, `value_propositions:update:${id}`, pickError(res.data));
+    if (!res.ok) return ko(res.status, `value_propositions:update:${id}`, pickError(res.data), pickApiError(res.data));
     return ok(`value_propositions:update:${id}`);
   },
 
@@ -210,7 +212,7 @@ export const actions: Actions = {
     const id = num(f, 'id');
     if (!id) return ko(400, 'value_propositions:delete', 'Falta el id');
     const res = await apiDelete(`/api/admin/content/value_propositions/${id}`, token);
-    if (!res.ok) return ko(res.status, `value_propositions:delete:${id}`, pickError(res.data));
+    if (!res.ok) return ko(res.status, `value_propositions:delete:${id}`, pickError(res.data), pickApiError(res.data));
     return ok(`value_propositions:delete:${id}`);
   },
 
@@ -225,7 +227,7 @@ export const actions: Actions = {
       { ordered_ids },
       token,
     );
-    if (!res.ok) return ko(res.status, 'value_propositions:reorder', pickError(res.data));
+    if (!res.ok) return ko(res.status, 'value_propositions:reorder', pickError(res.data), pickApiError(res.data));
     return ok('value_propositions:reorder');
   },
 
@@ -247,7 +249,7 @@ export const actions: Actions = {
       is_visible: bool(f, 'is_visible'),
     };
     const res = await apiPost('/api/admin/content/participation_steps', payload, token);
-    if (!res.ok) return ko(res.status, 'participation_steps:create', pickError(res.data));
+    if (!res.ok) return ko(res.status, 'participation_steps:create', pickError(res.data), pickApiError(res.data));
     return ok('participation_steps:create');
   },
 
@@ -264,7 +266,7 @@ export const actions: Actions = {
       is_visible: bool(f, 'is_visible'),
     };
     const res = await apiPut(`/api/admin/content/participation_steps/${id}`, payload, token);
-    if (!res.ok) return ko(res.status, `participation_steps:update:${id}`, pickError(res.data));
+    if (!res.ok) return ko(res.status, `participation_steps:update:${id}`, pickError(res.data), pickApiError(res.data));
     return ok(`participation_steps:update:${id}`);
   },
 
@@ -274,7 +276,7 @@ export const actions: Actions = {
     const id = num(f, 'id');
     if (!id) return ko(400, 'participation_steps:delete', 'Falta el id');
     const res = await apiDelete(`/api/admin/content/participation_steps/${id}`, token);
-    if (!res.ok) return ko(res.status, `participation_steps:delete:${id}`, pickError(res.data));
+    if (!res.ok) return ko(res.status, `participation_steps:delete:${id}`, pickError(res.data), pickApiError(res.data));
     return ok(`participation_steps:delete:${id}`);
   },
 
@@ -289,7 +291,7 @@ export const actions: Actions = {
       { ordered_ids },
       token,
     );
-    if (!res.ok) return ko(res.status, 'participation_steps:reorder', pickError(res.data));
+    if (!res.ok) return ko(res.status, 'participation_steps:reorder', pickError(res.data), pickApiError(res.data));
     return ok('participation_steps:reorder');
   },
 
@@ -311,7 +313,7 @@ export const actions: Actions = {
       is_visible: bool(f, 'is_visible'),
     };
     const res = await apiPost('/api/admin/content/social_links', payload, token);
-    if (!res.ok) return ko(res.status, 'social_links:create', pickError(res.data));
+    if (!res.ok) return ko(res.status, 'social_links:create', pickError(res.data), pickApiError(res.data));
     return ok('social_links:create');
   },
 
@@ -328,7 +330,7 @@ export const actions: Actions = {
       is_visible: bool(f, 'is_visible'),
     };
     const res = await apiPut(`/api/admin/content/social_links/${id}`, payload, token);
-    if (!res.ok) return ko(res.status, `social_links:update:${id}`, pickError(res.data));
+    if (!res.ok) return ko(res.status, `social_links:update:${id}`, pickError(res.data), pickApiError(res.data));
     return ok(`social_links:update:${id}`);
   },
 
@@ -338,7 +340,7 @@ export const actions: Actions = {
     const id = num(f, 'id');
     if (!id) return ko(400, 'social_links:delete', 'Falta el id');
     const res = await apiDelete(`/api/admin/content/social_links/${id}`, token);
-    if (!res.ok) return ko(res.status, `social_links:delete:${id}`, pickError(res.data));
+    if (!res.ok) return ko(res.status, `social_links:delete:${id}`, pickError(res.data), pickApiError(res.data));
     return ok(`social_links:delete:${id}`);
   },
 
@@ -362,7 +364,7 @@ export const actions: Actions = {
       is_active: bool(f, 'is_active'),
     };
     const res = await apiPost('/api/admin/content/contact_info', payload, token);
-    if (!res.ok) return ko(res.status, 'contact_info:create', pickError(res.data));
+    if (!res.ok) return ko(res.status, 'contact_info:create', pickError(res.data), pickApiError(res.data));
     return ok('contact_info:create');
   },
 
@@ -384,7 +386,7 @@ export const actions: Actions = {
       is_active: bool(f, 'is_active'),
     };
     const res = await apiPut(`/api/admin/content/contact_info/${id}`, payload, token);
-    if (!res.ok) return ko(res.status, `contact_info:update:${id}`, pickError(res.data));
+    if (!res.ok) return ko(res.status, `contact_info:update:${id}`, pickError(res.data), pickApiError(res.data));
     return ok(`contact_info:update:${id}`);
   },
 
@@ -394,7 +396,7 @@ export const actions: Actions = {
     const id = num(f, 'id');
     if (!id) return ko(400, 'contact_info:delete', 'Falta el id');
     const res = await apiDelete(`/api/admin/content/contact_info/${id}`, token);
-    if (!res.ok) return ko(res.status, `contact_info:delete:${id}`, pickError(res.data));
+    if (!res.ok) return ko(res.status, `contact_info:delete:${id}`, pickError(res.data), pickApiError(res.data));
     return ok(`contact_info:delete:${id}`);
   },
 
@@ -412,7 +414,7 @@ export const actions: Actions = {
       { is_active },
       token,
     );
-    if (!res.ok) return ko(res.status, `contact_info:active:${id}`, pickError(res.data));
+    if (!res.ok) return ko(res.status, `contact_info:active:${id}`, pickError(res.data), pickApiError(res.data));
     return ok(`contact_info:active:${id}`);
   },
 };

@@ -1,6 +1,8 @@
 import { env } from '../config/env.js';
 import * as authQ from '../queries/auth.queries.js';
+import * as adminQ from '../queries/administrator.queries.js';
 import * as authService from '../services/auth.service.js';
+import * as emailService from '../services/email.service.js';
 import { signAccessToken, signRefreshToken } from '../utils/jwt.utils.js';
 import { createHmac } from 'crypto';
 
@@ -38,13 +40,50 @@ export async function refresh(req, res, next) {
   try {
     const token = req.cookies?.[COOKIE];
     if (!token) return errorResponse(res, 'NO_TOKEN', 'No refresh token', 401);
-    const stored = await authQ.findRefreshToken(hashToken(token));
+    const tokenHash = hashToken(token);
+    const stored = await authQ.findRefreshToken(tokenHash);
     if (!stored || stored.user_type !== 'Administrador') return errorResponse(res, 'INVALID_TOKEN', 'Token inválido', 401);
-    await authQ.revokeToken(stored.token_hash);
+    await authQ.revokeToken(tokenHash);
     const payload = { sub: stored.user_id, role: 'admin' };
     const newRefresh = signRefreshToken(payload, env.JWT_ADMIN_REFRESH_EXPIRES_IN);
     await authQ.storeRefreshToken({ userType: 'Administrador', userId: stored.user_id, tokenHash: hashToken(newRefresh), expiresAt: new Date(Date.now() + 86400000), userAgent: req.headers['user-agent'], ipAddress: req.ip });
     res.cookie(COOKIE, newRefresh, cookieOpts);
     res.json({ access_token: signAccessToken(payload, env.JWT_ADMIN_ACCESS_EXPIRES_IN) });
+  } catch (e) { next(e); }
+}
+
+export async function sendPasswordReset(req, res, next) {
+  try {
+    const { administrator_id } = req.validated;
+    const existing = await adminQ.findById(administrator_id);
+    if (!existing) return errorResponse(res, 'NOT_FOUND', 'Administrador no encontrado', 404);
+    if (!existing.is_active) {
+      return errorResponse(res, 'INVALID_STATE', 'Solo se puede enviar el enlace a administradores activos', 400);
+    }
+
+    const admin = await authQ.findAdminById(administrator_id);
+    if (!admin?.usfq_email) {
+      return errorResponse(res, 'INVALID_STATE', 'El administrador no tiene un correo institucional disponible', 400);
+    }
+    if (!admin.password_hash) {
+      return errorResponse(res, 'INVALID_STATE', 'El administrador no tiene una contraseña configurada', 400);
+    }
+
+    const { token, hash } = authService.generateResetToken();
+    await authQ.storeResetToken({
+      collaboratorId: null,
+      administratorId: admin.id,
+      tokenHash: hash,
+      expiresAt: new Date(Date.now() + env.RESET_TOKEN_TTL_M * 60000)
+    });
+
+    emailService.sendPasswordReset({
+      firstName: admin.first_name,
+      email: admin.usfq_email,
+      resetUrl: `${env.SITE_URL}/forgot-password?token=${encodeURIComponent(token)}`,
+      expiryMinutes: env.RESET_TOKEN_TTL_M,
+    });
+
+    res.json({ message: 'Enlace de restablecimiento enviado al correo institucional del administrador' });
   } catch (e) { next(e); }
 }

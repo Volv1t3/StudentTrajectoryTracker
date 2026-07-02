@@ -30,16 +30,20 @@
 
 <article class="rounded-xl border border-[--border] shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 flex flex-col overflow-hidden h-full" style="background: var(--bg-surface);">
   <div class="p-6 flex flex-col flex-1">
-    <div class="flex items-center justify-between gap-2 mb-3">
-      <StatusBadge status={project.estado} />
-    </div>
-    {#if (project.categorias ?? []).length > 0}
-      <div class="flex flex-wrap gap-1.5 mb-3">
-        {#each project.categorias ?? [] as categoria}
-          <span class="text-md bg-white/20 px-2 py-0.5 rounded-full font-heading">{categoria}</span>
-        {/each}
+    <div class="grid grid-cols-2 gap-2 mb-3">
+      {#if (project.categorias ?? []).length > 0}
+        <div class="flex flex-wrap gap-1.5 mb-3">
+          {#each project.categorias ?? [] as categoria}
+            <span class="text-sm bg-white/20 px-2 py-0.5 rounded-full font-heading">{categoria}</span>
+          {/each}
+        </div>
+      {/if}
+      <div class="flex items-start justify-end gap-2 mb-3">
+        <span class="text-sm bg-white/20 px-2 py-0.5 rounded-full font-heading font-bold"> {project.estado}</span>
       </div>
-    {/if}
+    </div>
+
+
     <h3 class="text-base font-bold text-[--text-primary] leading-snug">{project.nombre}</h3>
     <p class="text-sm text-[--text-secondary] mt-1.5 line-clamp-3 flex-1">{@html project.descripcion_corta}</p>
     <div class="flex flex-wrap gap-2 mt-4">

@@ -176,6 +176,7 @@ export async function listAdmin({ status, projectId, collaboratorId, limit = 20,
 
   const base = `
     FROM applications a
+    LEFT JOIN assignments a2 ON a.id = a2.application_id
     JOIN collaborators c ON a.collaborator_id = c.id
     JOIN projects p ON a.project_id = p.id
     LEFT JOIN project_managers pm ON pm.project_id = p.id AND pm.is_primary = TRUE
@@ -209,8 +210,10 @@ export async function listAdmin({ status, projectId, collaboratorId, limit = 20,
         JOIN tags t ON t.id = pt.tag_id
         WHERE pt.project_id = p.id
           AND t.is_system = TRUE
-      ) AS project_categories
+      ) AS project_categories,
+      a2.role_in_project AS role_in_project
      ${base}
+     
      ORDER BY a.applied_at DESC, a.id DESC
      LIMIT ? OFFSET ?`,
     [...params, String(limit), String(offset)]

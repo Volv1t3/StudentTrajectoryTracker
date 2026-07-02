@@ -62,6 +62,14 @@ export const load: PageServerLoad = async ({ url }) => {
     };
   });
 
+  const archivedProjects = projects.filter((e) => {
+    return e.estado === 'Archivado';
+  })
+
+  const otherProjects = projects.filter((e) => {
+    return e.estado !== 'Archivado';
+  })
+
   return {
     projects,
     categories: tagsRes.ok ? tagsRes.data.map((tag) => tag.name) : [],
@@ -74,5 +82,7 @@ export const load: PageServerLoad = async ({ url }) => {
       search,
       page,
     },
+    archivedProjects,
+    otherProjects,
   };
 };

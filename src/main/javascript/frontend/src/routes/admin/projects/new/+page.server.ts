@@ -3,6 +3,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { api, apiGet, apiPost } from '$lib/server/api';
 import { getAdminAccessToken } from '$lib/server/auth';
 import { loadAdministratorOptions } from '$lib/server/admin-administrators';
+import { validateBucketUpload } from '$lib/server/upload-limits';
 import type { Tag } from '$lib/types';
 
 function buildWarningRedirect(message: string) {
@@ -41,6 +42,22 @@ async function cleanupUploadedMedia(path: string, token: string) {
   });
 }
 
+async function notifyMediaFailureSafely(projectId: number, operation: 'create' | 'edit', stage: 'upload' | 'attach', token: string) {
+  try {
+    await notifyMediaFailure(projectId, operation, stage, token);
+  } catch (error) {
+    console.error('[projects/new] Failed to notify media failure', { projectId, operation, stage, error });
+  }
+}
+
+async function cleanupUploadedMediaSafely(path: string, token: string) {
+  try {
+    await cleanupUploadedMedia(path, token);
+  } catch (error) {
+    console.error('[projects/new] Failed to cleanup uploaded media', { path, error });
+  }
+}
+
 export const load: PageServerLoad = async ({ cookies }) => {
   const token = getAdminAccessToken(cookies)!;
   const [categoriesRes, subcategoriesRes, admins] = await Promise.all([
@@ -70,6 +87,11 @@ export const actions: Actions = {
     const maxCollaboratorsRaw = form.get('cupo_maximo')?.toString().trim();
     const headerImageFile = form.get('header_image_file');
     const headerImageUrl = form.get('header_image_url')?.toString().trim() || null;
+    const uploadError = validateBucketUpload(headerImageFile, 'La imagen principal');
+    if (uploadError) {
+      return fail(400, { error: uploadError, apiError: { code: 'ERR_UPLOAD', message: uploadError } });
+    }
+
     const parseJson = <T>(value: FormDataEntryValue | null): T => {
       if (!value) return [] as T;
       try { return JSON.parse(value.toString()) as T; } catch { return [] as T; }
@@ -102,32 +124,56 @@ export const actions: Actions = {
 
     const res = await apiPost('/api/admin/projects', body, token);
     if (!res.ok) {
-      const msg = (res.data as any)?.error?.message || 'Error al crear el proyecto';
-      return fail(res.status, { error: msg });
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'Error al crear el proyecto';
+      // Forward the structured envelope so the client can run
+      // extractApiError/mapBackendFields and bind field-level errors back to
+      // the matching controls. We keep the legacy `error` field for any
+      // older listener.
+      return fail(res.status, { error: msg, apiError });
     }
 
     const projectId = Number((res.data as any)?.id);
     if (headerImageFile instanceof File && headerImageFile.size > 0 && Number.isInteger(projectId) && projectId > 0) {
-      const uploadRes = await uploadProjectImage(projectId, headerImageFile, token);
-      if (!uploadRes.ok || !uploadRes.data?.mediaAssetId) {
-        await notifyMediaFailure(projectId, 'create', 'upload', token);
+      let uploadRes;
+      try {
+        uploadRes = await uploadProjectImage(projectId, headerImageFile, token);
+      } catch (error) {
+        await notifyMediaFailureSafely(projectId, 'create', 'upload', token);
+        console.error('[projects/new] Header image upload failed', { projectId, error });
         throw redirect(302, buildWarningRedirect('Proyecto creado, pero la imagen principal no pudo cargarse.'));
       }
 
-      const patchRes = await api('/api/admin/projects/' + projectId, {
-        method: 'PUT',
-        accessToken: token,
-        body: {
-          ...body,
-          header_image_media_asset_id: uploadRes.data.mediaAssetId,
-          header_image_url: null,
-        },
-      });
+      if (!uploadRes.ok || !uploadRes.data?.mediaAssetId) {
+        await notifyMediaFailureSafely(projectId, 'create', 'upload', token);
+        throw redirect(302, buildWarningRedirect('Proyecto creado, pero la imagen principal no pudo cargarse.'));
+      }
+
+      let patchRes;
+      try {
+        patchRes = await api('/api/admin/projects/' + projectId, {
+          method: 'PUT',
+          accessToken: token,
+          body: {
+            ...body,
+            header_image_media_asset_id: uploadRes.data.mediaAssetId,
+            header_image_url: null,
+          },
+        });
+      } catch (error) {
+        if (uploadRes.data?.path) {
+          await cleanupUploadedMediaSafely(uploadRes.data.path, token);
+        }
+        await notifyMediaFailureSafely(projectId, 'create', 'attach', token);
+        console.error('[projects/new] Failed to attach uploaded header image', { projectId, error });
+        throw redirect(302, buildWarningRedirect('Proyecto creado, pero la imagen principal no pudo aplicarse.'));
+      }
+
       if (!patchRes.ok) {
         if (uploadRes.data?.path) {
-          await cleanupUploadedMedia(uploadRes.data.path, token);
+          await cleanupUploadedMediaSafely(uploadRes.data.path, token);
         }
-        await notifyMediaFailure(projectId, 'create', 'attach', token);
+        await notifyMediaFailureSafely(projectId, 'create', 'attach', token);
         throw redirect(302, buildWarningRedirect('Proyecto creado, pero la imagen principal no pudo aplicarse.'));
       }
     }
