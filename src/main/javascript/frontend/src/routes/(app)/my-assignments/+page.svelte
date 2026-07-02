@@ -4,6 +4,7 @@
   import EmptyState from '$lib/components/ui/EmptyState.svelte';
   import MetaChip from '$lib/components/ui/MetaChip.svelte';
   import AvailabilityPicker from '$lib/components/ui/AvailabilityPicker.svelte';
+  import SafeRichText from '$lib/components/ui/SafeRichText.svelte';
 
   type Tag = {
     id: number;
@@ -118,7 +119,11 @@ type MeetingDay = {
                   {assignment.project_title}
                 </a>
               </h3>
-              <p class="mt-1 text-xs text-[--text-muted]">{@html assignment.project_short_description}</p>
+              <SafeRichText
+                html={assignment.project_short_description}
+                as="div"
+                class="assignment-project-description mt-1 text-xs text-[--text-muted]"
+              />
             </div>
             <StatusBadge status={assignment.status} />
           </div>
@@ -201,3 +206,10 @@ type MeetingDay = {
     />
   {/if}
 </div>
+
+<style>
+  :global(.assignment-project-description p) {
+    display: inline;
+    margin: 0;
+  }
+</style>

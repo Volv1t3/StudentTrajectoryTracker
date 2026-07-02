@@ -3,6 +3,7 @@
   import { capture } from '$lib/utils/posthog';
   import MetaChip from '$lib/components/ui/MetaChip.svelte';
   import { Calendar } from 'lucide-svelte';
+  import SafeRichText from '$lib/components/ui/SafeRichText.svelte';
 
   interface Event {
     id: number;
@@ -52,7 +53,11 @@
   </div>
   <div class="p-6 flex flex-col flex-1">
     <h3 class="text-base font-bold text-[--text-primary] leading-snug">{event.nombre}</h3>
-    <p class="text-sm text-[--text-secondary] mt-1.5 line-clamp-3 flex-1">{@html event.descripcion_corta}</p>
+    <SafeRichText
+      html={event.descripcion_corta}
+      as="div"
+      class="event-card-description text-sm text-[--text-secondary] mt-1.5 line-clamp-3 flex-1"
+    />
     <div class="flex flex-wrap gap-2 mt-4">
       <MetaChip icon="MapPin" value={event.modalidad} />
       {#if event.cuota_maxima}
@@ -71,3 +76,10 @@
     </footer>
   </div>
 </article>
+
+<style>
+  :global(.event-card-description p) {
+    display: inline;
+    margin: 0;
+  }
+</style>

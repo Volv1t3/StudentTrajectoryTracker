@@ -64,7 +64,9 @@ export async function getSection(section) {
 
   if (LIST_SECTIONS.includes(section)) {
     const sortField = LIST_SORT_FIELDS[section];
-    const [rows] = await pool.execute(`SELECT * FROM ${table} ORDER BY ${sortField}, id`);
+    const [rows] = await pool.execute(
+      `SELECT * FROM ${table} WHERE is_visible = TRUE ORDER BY ${sortField}, id`
+    );
     return rows;
   }
   if (section === 'contact_info') {

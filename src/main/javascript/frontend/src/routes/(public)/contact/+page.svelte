@@ -12,6 +12,7 @@
   import { validateContactForm, CONTACT_LIMITS } from '$lib/validation/contact';
   import { extractApiError, mapBackendFields, summarizeFormError } from '$lib/validation/apiError';
   import { contactFieldMap } from '$lib/validation/fieldMaps';
+  import SafeRichText from "$lib/components/ui/SafeRichText.svelte";
 
   interface Content {
     first_name?: string;
@@ -20,7 +21,8 @@
     title_description?: string;
     contact_email?: string;
     contact_location?: string;
-    contact_availability?: string;
+    contact_headline?: string;
+    contact_description?: string;
     social_instagram?: string;
     social_usfq?: string;
   }
@@ -144,7 +146,10 @@
             <InfoRow icon="MapPin" label="Ubicación" value={data.content.contact_location || ''} />
           </li>
           <li>
-            <InfoRow icon="Clock" label="Disponibilidad" value={data.content.contact_availability || ''} />
+            <InfoRow icon="Clock" label="" value={data.content.contact_headline || ''} />
+            <div class="pl-6 mt-1 text-sm">
+              <SafeRichText html={data.content.contact_description || ''} />
+            </div>
           </li>
         </ul>
       </div>

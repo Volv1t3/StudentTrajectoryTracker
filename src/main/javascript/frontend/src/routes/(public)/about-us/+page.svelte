@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Zap, Eye, Target, HandshakeIcon, TrendingUp } from 'lucide-svelte';
   import PageHero from '$lib/components/layout/PageHero.svelte';
+  import SafeRichText from '$lib/components/ui/SafeRichText.svelte';
   import { resolveIcon } from '$lib/utils/icons';
   import type { ValueProposition } from '$lib/types/cms';
 
@@ -39,9 +40,13 @@
   <div class="max-w-3xl mx-auto px-4 sm:px-12 lg:px-14 text-center">
     <span class="text-lg uppercase tracking-widest block mb-4" style="color: var(--accent); font-family: var(--font-subheading);">¿Qué es D.Lab?</span>
     <div class="w-12 h-0.5 mx-auto mb-6" style="background: var(--accent); opacity: 0.3;"></div>
-    <p class="text-xl md:text-2xl leading-relaxed font-medium" style="color: var(--text-primary);">
-      {@html data.content.identity_text || 'D.Lab es el Laboratorio de Investigación aplicada de la USFQ.'}
-    </p>
+    <SafeRichText
+      html={data.content.identity_text}
+      fallback="D.Lab es el Laboratorio de Investigación aplicada de la USFQ."
+      as="div"
+      class="text-xl md:text-2xl leading-relaxed font-medium"
+      style="color: var(--text-primary);"
+    />
   </div>
 </section>
 
@@ -54,9 +59,13 @@
           {data.content.vision_title || 'Un ecosistema de innovación estudiantil'}
         </h2>
         <div class="w-10 h-0.5 mt-5 mb-5" style="background: var(--accent); opacity: 0.3;"></div>
-        <p class="text-base md:text-lg leading-relaxed" style="color: var(--text-secondary);">
-          {@html data.content.vision_text || 'Ser el espacio líder de innovación estudiantil en Ecuador, formando profesionales con experiencia práctica en proyectos de impacto real.'}
-        </p>
+        <SafeRichText
+          html={data.content.vision_text}
+          fallback="Ser el espacio líder de innovación estudiantil en Ecuador, formando profesionales con experiencia práctica en proyectos de impacto real."
+          as="div"
+          class="text-base md:text-lg leading-relaxed"
+          style="color: var(--text-secondary);"
+        />
 
       </div>
       <div class="order-1 lg:order-2 relative aspect-[4/3] rounded-2xl overflow-hidden" style="background: linear-gradient(135deg, color-mix(in srgb, var(--deep) 15%, transparent) 0%, var(--accent-light) 100%);">
@@ -84,9 +93,13 @@
           {data.content.mission_title || 'Formar líderes a través de proyectos reales'}
         </h2>
         <div class="w-10 h-0.5 mt-5 mb-5" style="background: var(--accent); opacity: 0.3;"></div>
-        <p class="text-base md:text-lg leading-relaxed" style="color: var(--text-secondary);">
-          {@html data.content.mission_text || 'Conectar a estudiantes con proyectos desafiantes que desarrollan habilidades técnicas, trabajo en equipo y pensamiento innovador.'}
-        </p>
+        <SafeRichText
+          html={data.content.mission_text}
+          fallback="Conectar a estudiantes con proyectos desafiantes que desarrollan habilidades técnicas, trabajo en equipo y pensamiento innovador."
+          as="div"
+          class="text-base md:text-lg leading-relaxed"
+          style="color: var(--text-secondary);"
+        />
       </div>
       <div class="order-1 relative aspect-[4/3] rounded-2xl overflow-hidden" style="background: linear-gradient(135deg, var(--accent-light) 0%, color-mix(in srgb, var(--deep) 15%, transparent) 100%);">
         {#if data.missionImage}
@@ -112,13 +125,19 @@
     </div>
     <div class="grid grid-cols-1 md:grid-cols-6 lg:grid-cols-12 gap-5">
       {#each data.valuePropositions as vp, i (vp.id)}
+        {@const Icon = resolveIcon(vp.icon_identifier)}
         <article class={`btn-grid border-2 p-10 bg-[--text-primary] hover:bg-[--color-red-hover] text-md font-subheading rounded-lg transition-all duration-200 hover:-translate-y-0.5
         hover:shadow-md active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[--color-red] focus-visible:ring-offset-2 ${i % 5 === 0 ? 'md:col-span-6 lg:col-span-7' : i % 5 === 1 ? 'md:col-span-3 lg:col-span-5' : i % 5 === 2 ? 'md:col-span-3 lg:col-span-4' : i % 5 === 3 ? 'md:col-span-6 lg:col-span-8' : 'md:col-span-6 lg:col-span-4'}`}>
-          {#if resolveIcon(vp.icon_identifier)}
-            <svelte:component this={resolveIcon(vp.icon_identifier)} size={32} class="text-black mb-3" />
+          {#if Icon}
+            <Icon size={32} class="text-black mb-3" />
           {/if}
           <h3 class="text-lg font-subheading" style="color: var(--color-primary); font-weight: bold;">{vp.title}</h3>
-          <p class="text-sm mt-2 leading-relaxed" style="color: var(--color-primary); font-family: var(--font-sans);">{@html vp.description}</p>
+          <SafeRichText
+            html={vp.description}
+            as="div"
+            class="text-sm mt-2 leading-relaxed"
+            style="color: var(--color-primary); font-family: var(--font-sans);"
+          />
         </article>
       {/each}
     </div>

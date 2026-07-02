@@ -4,6 +4,7 @@
   import Button from '$lib/components/ui/Button.svelte';
   import InfoRow from '$lib/components/ui/InfoRow.svelte';
   import PageHero from '$lib/components/layout/PageHero.svelte';
+  import SafeRichText from '$lib/components/ui/SafeRichText.svelte';
 
   interface Event {
     id: number;
@@ -252,9 +253,11 @@
               </div>
             {/if}
           </div>
-          <div class="event-description prose prose-sm max-w-none text-[--text-secondary] leading-relaxed">
-            {@html data.event.descripcion_larga}
-          </div>
+          <SafeRichText
+            html={data.event.descripcion_larga}
+            as="div"
+            class="event-description prose prose-sm max-w-none text-[--text-secondary] leading-relaxed"
+          />
         </div>
       </div>
 

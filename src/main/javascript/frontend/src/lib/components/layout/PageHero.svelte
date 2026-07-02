@@ -1,5 +1,6 @@
 <script lang="ts">
   import SpiralBackground from './SpiralBackground.svelte';
+  import SafeRichText from '$lib/components/ui/SafeRichText.svelte';
 
   interface Props {
     title: string;
@@ -10,6 +11,13 @@
   }
 
   let { title, subtitle = '', eyebrow = '', variant = 'default', children }: Props = $props();
+
+  const subtitleClassName = $derived(
+    [
+      'mt-4 sm:mt-5 p-5 max-w-3xl leading-relaxed font-light text-[--color-text-muted-on-dark] break-words text-sm sm:text-base',
+      variant === 'landing' ? 'md:text-lg lg:text-xl' : '',
+    ].filter(Boolean).join(' ')
+  );
 </script>
 
 <section
@@ -54,13 +62,11 @@
     </h1>
 
     {#if subtitle}
-      <p
-        class="mt-4 sm:mt-5 p-5 max-w-3xl leading-relaxed font-light text-[--color-text-muted-on-dark] break-words text-sm sm:text-base"
-        class:md:text-lg={variant === 'landing'}
-        class:lg:text-xl={variant === 'landing'}
-      >
-        {@html subtitle}
-      </p>
+      <SafeRichText
+        html={subtitle}
+        as="div"
+        class={subtitleClassName}
+      />
     {/if}
 
     {#if children}
