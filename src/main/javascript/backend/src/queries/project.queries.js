@@ -10,7 +10,12 @@ function mapProjectError(error) {
   const message = String(error?.sqlMessage || error?.message || '');
 
   if (message.includes('Duplicate entry') && message.includes('slug')) {
-    return new AppError('DUPLICATE_SLUG', 'Ya existe un proyecto con este slug o título similar', 409);
+    const duplicateSlugMessage = 'Ya existe un proyecto con un slug equivalente. Ajusta el nombre del proyecto.';
+    return new AppError('ERR_VALIDATION', duplicateSlugMessage, 409, {
+      fields: {
+        slug: duplicateSlugMessage,
+      },
+    });
   }
   if (message.includes('Cannot delete project with active assignments')) {
     return new AppError('PROJECT_HAS_ASSIGNMENTS', 'No se puede eliminar un proyecto que tiene vinculaciones activas', 400);
@@ -40,6 +45,39 @@ function sqlNull(value) {
 
 function sanitizeSqlParams(params = []) {
   return params.map((value) => (value === undefined ? null : value));
+}
+
+function generateCanonicalProjectSlug(title) {
+  const normalizedTitle = String(title || '').trim();
+  return generateSlug(normalizedTitle || 'proyecto') || `proyecto-${Date.now()}`;
+}
+
+function buildComparableProjectTitleKey(title) {
+  const normalizedTitle = String(title || '').trim();
+  return generateSlug(normalizedTitle) || normalizedTitle.toLowerCase();
+}
+
+async function ensureUniqueProjectTitle(executor, title, excludeId = null) {
+  const comparableKey = buildComparableProjectTitleKey(title);
+  if (!comparableKey) return;
+
+  const params = [];
+  let sql = 'SELECT id, title FROM projects';
+  if (excludeId !== null && excludeId !== undefined) {
+    sql += ' WHERE id <> ?';
+    params.push(excludeId);
+  }
+
+  const [rows] = await executor.execute(sql, params);
+  const conflict = rows.find((row) => buildComparableProjectTitleKey(row?.title) === comparableKey);
+  if (!conflict) return;
+
+  const duplicateTitleMessage = 'Ya existe un proyecto con este nombre o uno demasiado similar.';
+  throw new AppError('ERR_VALIDATION', duplicateTitleMessage, 409, {
+    fields: {
+      title: duplicateTitleMessage,
+    },
+  });
 }
 
 function parseJsonArray(value) {
@@ -314,7 +352,6 @@ export async function create(data, adminId) {
   try {
     const {
       title,
-      slug,
       short_description,
       full_description,
       target_audience,
@@ -334,7 +371,8 @@ export async function create(data, adminId) {
       header_image_url,
       video_url,
     } = data;
-    const resolvedSlug = (slug && String(slug).trim()) || generateSlug(title);
+    await ensureUniqueProjectTitle(pool, title);
+    const resolvedSlug = generateCanonicalProjectSlug(title);
     const normalizedMode = normalizeProjectMode(participation_mode);
     const resolvedTagIds = await resolveProjectTags(tags, new_tags, adminId);
     const resolvedSkillItems = resolveProjectSkills(required_skill_items, adminId);
@@ -381,7 +419,7 @@ export async function update(id, data, adminId) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { tags, new_tags, required_skill_items, meetingDays, managers, header_image_media_asset_id, video_media_asset_id, header_image_url, video_url, participation_mode, slug, ...fields } = data;
+    const { tags, new_tags, required_skill_items, meetingDays, managers, header_image_media_asset_id, video_media_asset_id, header_image_url, video_url, participation_mode, ...fields } = data;
     const [[currentProject]] = await conn.execute(
       `SELECT
         p.header_image_media_asset_id,
@@ -431,11 +469,16 @@ export async function update(id, data, adminId) {
           adminId,
         )
       : null;
+    if (Object.prototype.hasOwnProperty.call(fields, 'title')) {
+      await ensureUniqueProjectTitle(conn, fields.title, Number(id));
+    }
     const updateFields = Object.fromEntries(Object.entries({
       ...fields,
-      ...(slug ? { slug: String(slug).trim() } : {}),
       ...(resolvedMode ? { participation_mode: resolvedMode } : {}),
     }).filter(([, value]) => value !== undefined));
+    if (Object.prototype.hasOwnProperty.call(fields, 'title')) {
+      updateFields.slug = generateCanonicalProjectSlug(fields.title);
+    }
     if (mediaIds && hasHeaderMedia) updateFields.header_image_media_asset_id = mediaIds.header_image_media_asset_id;
     if (mediaIds && hasVideoMedia) updateFields.video_media_asset_id = mediaIds.video_media_asset_id;
     if (Object.keys(updateFields).length) {

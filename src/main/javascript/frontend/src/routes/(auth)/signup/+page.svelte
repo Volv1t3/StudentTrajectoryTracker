@@ -5,8 +5,11 @@
   import FormField from '$lib/components/ui/FormField.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import AvailabilityPicker from '$lib/components/ui/AvailabilityPicker.svelte';
+  import FormErrorSummary from '$lib/components/ui/FormErrorSummary.svelte';
   import { TelInput } from 'svelte-tel-input';
   import type { CountryCode } from 'svelte-tel-input/types';
+  import { extractApiError, mapBackendFields, summarizeFormError } from '$lib/validation/apiError';
+  import { signupFieldMap } from '$lib/validation/fieldMaps';
 
   interface Props {
     data: { carreras: any[]; habilidades: any[]; areas: any[] };
@@ -35,11 +38,14 @@
   let fechaNacimientoValue = $state('');
   let motivacionValue = $state('');
   let interestChecked = $state(false);
+  let consentChecked = $state(false);
   
   // Error toasts
   let errorToasts = $state<{id: number; msg: string}[]>([]);
   let toastId = 0;
   let lastFormError = $state('');
+  let backendFieldErrors = $state<Record<string, string>>({});
+  let topError = $state('');
   
   function showErrorToast(message: string) {
     const id = ++toastId;
@@ -107,10 +113,15 @@
     }
   });
   
+
+
+  // Consume backend ERR_VALIDATION envelope (apiError) when present and
+  // translate backend payload keys to the Spanish UI field names used here.
   $effect(() => {
-    if (form?.error && form.error !== lastFormError) {
-      lastFormError = form.error;
-      showErrorToast(form.error);
+    if (form?.apiError !== undefined) {
+      const extracted = extractApiError(form?.apiError ?? null);
+      backendFieldErrors = mapBackendFields(extracted.fields, signupFieldMap);
+      topError = summarizeFormError(extracted);
     }
   });
   
@@ -129,7 +140,8 @@
     pendingTags.length > 0 &&
     interestChecked &&
     availabilitySlots.length > 0 &&
-    motivacionValue.trim().length >= 50
+    motivacionValue.trim().length >= 50 &&
+      consentChecked
   );
 
   function validateTagInput(value: string): string {
@@ -252,6 +264,11 @@
       </div>
     {:else}
       <form method="POST" action="?/register" use:enhance class="px-8 py-6 space-y-7">
+        {#if topError}
+          <div class="px-1">
+            <FormErrorSummary message={topError} onDismiss={() => (topError = '')} />
+          </div>
+        {/if}
         <!-- Personal info -->
         <fieldset>
           <legend class="block mb-4">
@@ -259,8 +276,8 @@
             <div class="w-full h-0.5" style="background: var(--accent); opacity: 0.3;"></div>
           </legend>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField name="nombres" label="Nombres" required placeholder="Ej: María José" bind:value={nombresValue} error={form?.errors?.nombres} />
-            <FormField name="apellidos" label="Apellidos" required placeholder="Ej: Rodríguez López" bind:value={apellidosValue} error={form?.errors?.apellidos} />
+            <FormField name="nombres" label="Nombres" required placeholder="Ej: María José" bind:value={nombresValue} error={backendFieldErrors.nombres || form?.errors?.nombres} />
+            <FormField name="apellidos" label="Apellidos" required placeholder="Ej: Rodríguez López" bind:value={apellidosValue} error={backendFieldErrors.apellidos || form?.errors?.apellidos} />
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
             <FormField
@@ -270,7 +287,7 @@
               required
               placeholder="tu.nombre@usfq.edu.ec"
               hint="Debes usar un correo que termine en .usfq.edu.ec"
-              error={emailError || form?.errors?.correo_institucional}
+              error={emailError || backendFieldErrors.correo_institucional || form?.errors?.correo_institucional}
               bind:value={correoValue}
             />
             <FormField
@@ -279,7 +296,7 @@
               label="Correo personal"
               required
               placeholder="tu.email@gmail.com"
-              error={personalEmailError || form?.errors?.correo_personal}
+              error={personalEmailError || backendFieldErrors.correo_personal || form?.errors?.correo_personal}
               bind:value={correoPersonalValue}
             />
           </div>
@@ -436,7 +453,7 @@
         <!-- Consent -->
         <div>
           <label class="flex items-start gap-3 cursor-pointer">
-            <input type="checkbox" name="consentimiento_datos" class="mt-0.5 h-4 w-4 rounded border-[--border] text-[--color-red] focus:ring-[--color-red]" />
+            <input type="checkbox" name="consentimiento_datos" class="mt-0.5 h-4 w-4 rounded border-[--border] text-[--color-red] focus:ring-[--color-red]" bind:checked={consentChecked}/>
             <span class="text-sm text-[--text-secondary] leading-relaxed">
               Acepto que mis datos sean almacenados y procesados por DLAB para la gestión de mi participación.
               <span class="text-red-500">*</span>

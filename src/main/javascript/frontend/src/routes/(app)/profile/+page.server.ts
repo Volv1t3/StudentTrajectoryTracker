@@ -58,11 +58,13 @@ export const actions: Actions = {
         body: { name: tagName }
       });
       if (!res.ok) {
-        const msg = (res.data as any)?.error?.message || `No se pudo crear la habilidad "${tagName}"`;
-        return fail(res.status, { error: msg });
+        const apiError = (res.data as any)?.error ?? null;
+        const msg = apiError?.message || `No se pudo crear la habilidad "${tagName}"`;
+        return fail(res.status, { error: msg, apiError });
       }
       if (!res.data?.id) {
-        return fail(500, { error: `La habilidad "${tagName}" no devolvió un identificador válido` });
+        const msg = `La habilidad "${tagName}" no devolvió un identificador válido`;
+        return fail(500, { error: msg, apiError: { code: 'ERR_TAG_CREATE', message: msg } });
       }
       newTagIds.push(res.data.id);
     }
@@ -103,8 +105,9 @@ export const actions: Actions = {
       body
     });
     if (!res.ok) {
-      const msg = (res.data as any)?.error?.message || 'Error al actualizar perfil';
-      return fail(res.status, { error: msg });
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'Error al actualizar perfil';
+      return fail(res.status, { error: msg, apiError });
     }
 
     // Update availability if provided
@@ -113,18 +116,27 @@ export const actions: Actions = {
       try {
         const slots = JSON.parse(availabilitySlotsStr);
         if (!Array.isArray(slots)) {
-          return fail(400, { error: 'La disponibilidad enviada no es válida' });
+          const msg = 'La disponibilidad enviada no es válida';
+          return fail(400, {
+            error: msg,
+            apiError: { code: 'ERR_VALIDATION', message: msg, fields: { slots: msg } },
+          });
         }
         const availabilityRes = await apiAuthenticated('/api/app/availability', cookies, {
           method: 'PUT',
           body: { slots }
         });
         if (!availabilityRes.ok) {
-          const msg = (availabilityRes.data as any)?.error?.message || 'Error al actualizar disponibilidad';
-          return fail(availabilityRes.status, { error: msg });
+          const apiError = (availabilityRes.data as any)?.error ?? null;
+          const msg = apiError?.message || 'Error al actualizar disponibilidad';
+          return fail(availabilityRes.status, { error: msg, apiError });
         }
       } catch {
-        return fail(400, { error: 'No se pudo procesar la disponibilidad semanal' });
+        const msg = 'No se pudo procesar la disponibilidad semanal';
+        return fail(400, {
+          error: msg,
+          apiError: { code: 'ERR_VALIDATION', message: msg, fields: { slots: msg } },
+        });
       }
     }
 

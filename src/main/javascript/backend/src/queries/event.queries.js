@@ -7,7 +7,12 @@ function mapEventError(error) {
   const message = String(error?.sqlMessage || error?.message || '');
 
   if (message.includes('Duplicate entry') && message.includes('slug')) {
-    return new AppError('DUPLICATE_SLUG', 'Ya existe un evento con este slug o título similar', 409);
+    const duplicateSlugMessage = 'Ya existe un evento con un slug equivalente. Ajusta el nombre del evento.';
+    return new AppError('ERR_VALIDATION', duplicateSlugMessage, 409, {
+      fields: {
+        slug: duplicateSlugMessage,
+      },
+    });
   }
   if (message.includes('Event not found')) {
     return new AppError('EVENT_NOT_FOUND', 'Evento no encontrado', 404);
@@ -132,10 +137,9 @@ async function findEventBySlugInternal(slug, excludeId = null) {
   return rows[0] || null;
 }
 
-async function resolveEventSlug(title, requestedSlug, excludeId = null) {
-  const requested = String(requestedSlug || '').trim();
+async function resolveEventSlug(title, excludeId = null) {
   const titleText = String(title || '').trim();
-  const baseSlug = generateSlug(requested || titleText || 'evento') || `evento-${Date.now()}`;
+  const baseSlug = generateSlug(titleText || 'evento') || `evento-${Date.now()}`;
 
   let candidate = baseSlug;
   let suffix = 2;
@@ -144,6 +148,34 @@ async function resolveEventSlug(title, requestedSlug, excludeId = null) {
     suffix += 1;
   }
   return candidate;
+}
+
+function buildComparableEventTitleKey(title) {
+  const normalizedTitle = String(title || '').trim();
+  return generateSlug(normalizedTitle) || normalizedTitle.toLowerCase();
+}
+
+async function ensureUniqueEventTitle(executor, title, excludeId = null) {
+  const comparableKey = buildComparableEventTitleKey(title);
+  if (!comparableKey) return;
+
+  const params = [];
+  let sql = 'SELECT id, title FROM events';
+  if (excludeId !== null && excludeId !== undefined) {
+    sql += ' WHERE id <> ?';
+    params.push(excludeId);
+  }
+
+  const [rows] = await executor.execute(sql, params);
+  const conflict = rows.find((row) => buildComparableEventTitleKey(row?.title) === comparableKey);
+  if (!conflict) return;
+
+  const duplicateTitleMessage = 'Ya existe un evento con este nombre o uno demasiado similar.';
+  throw new AppError('ERR_VALIDATION', duplicateTitleMessage, 409, {
+    fields: {
+      title: duplicateTitleMessage,
+    },
+  });
 }
 
 async function getEventCreateProcedureParamCount() {
@@ -233,7 +265,6 @@ export async function create(data, adminId) {
   try {
     const {
       title,
-      slug,
       type,
       short_description,
       full_description,
@@ -253,7 +284,8 @@ export async function create(data, adminId) {
       tags = [],
       managers = [],
     } = data;
-    const resolvedSlug = await resolveEventSlug(title, slug);
+    await ensureUniqueEventTitle(pool, title);
+    const resolvedSlug = await resolveEventSlug(title);
     const procedureParamCount = await getEventCreateProcedureParamCount();
 
     if (procedureParamCount >= 22) {
@@ -344,6 +376,14 @@ export async function update(id, data, adminId) {
       ...rawFields
     } = data;
     const fields = { ...rawFields, ...mediaUpdates };
+    if (Object.prototype.hasOwnProperty.call(rawFields, 'title')) {
+      await ensureUniqueEventTitle(conn, rawFields.title, Number(id));
+    }
+    if (Object.prototype.hasOwnProperty.call(rawFields, 'title')) {
+      fields.slug = await resolveEventSlug(rawFields.title, Number(id));
+    } else {
+      delete fields.slug;
+    }
     if (Object.keys(fields).length) {
       const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ');
       await conn.execute(`UPDATE events SET ${sets}, updated_at = NOW() WHERE id = ?`, [...Object.values(fields), id]);

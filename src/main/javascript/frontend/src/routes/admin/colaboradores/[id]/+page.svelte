@@ -1,10 +1,15 @@
 <script lang="ts">
+  import { applyAction, enhance } from '$app/forms';
   import { ArrowLeft} from 'lucide-svelte';
-  import { enhance } from '$app/forms';
   import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import CollaboratorProfileView from '$lib/components/profile/CollaboratorProfileView.svelte';
+  import FormField from '$lib/components/ui/FormField.svelte';
+  import FormErrorSummary from '$lib/components/ui/FormErrorSummary.svelte';
+  import { COLLAB_LIMITS, validateRejectCollaboratorForm } from '$lib/validation/collaborator';
+  import { extractApiError, mapBackendFields, summarizeFormError } from '$lib/validation/apiError';
+  import { collaboratorAdminFieldMap } from '$lib/validation/fieldMaps';
 
   interface Colaborador {
     id: number;
@@ -43,15 +48,78 @@
 
   interface Props {
     data: { colaborador: Colaborador };
-    form?: { error?: string; success?: boolean };
+    form?: { error?: string; success?: boolean; apiError?: unknown };
   }
 
   let { data, form }: Props = $props();
   let approveModalOpen = $state(false);
   let rejectModalOpen = $state(false);
   let deactivateModalOpen = $state(false);
+  let rejectReason = $state('');
+  let rejectTouched = $state(false);
+  let rejectTopError = $state('');
+  let rejectBackendErrors = $state<Record<string, string>>({});
 
   const c = $derived(data.colaborador);
+
+  const rejectFrontErrors = $derived(
+    validateRejectCollaboratorForm({ reason: rejectReason || undefined }) as Record<string, string>
+  );
+
+  const rejectErrors = $derived<Record<string, string>>({
+    ...rejectFrontErrors,
+    ...rejectBackendErrors,
+  });
+
+  $effect(() => {
+    if (form?.apiError !== undefined || form?.error !== undefined) {
+      const extracted = extractApiError(form?.apiError ?? form?.error ?? null);
+      rejectBackendErrors = mapBackendFields(extracted.fields, collaboratorAdminFieldMap);
+      rejectTopError = summarizeFormError(extracted);
+      rejectTouched = true;
+    }
+  });
+
+  function openRejectModal() {
+    rejectModalOpen = true;
+    rejectReason = '';
+    rejectTouched = false;
+    rejectTopError = '';
+    rejectBackendErrors = {};
+  }
+
+  function handleRejectEnhance({ cancel }: { cancel: () => void }) {
+    rejectTouched = true;
+    if (Object.keys(rejectFrontErrors).length > 0) {
+      rejectTopError = 'Revisa los campos marcados antes de continuar.';
+      cancel();
+      return;
+    }
+    return async ({ result }: { result: any }) => {
+      if (result?.type === 'success' || result?.type === 'redirect') {
+        rejectModalOpen = false;
+      }
+      await applyAction(result);
+    };
+  }
+
+  function handleApproveEnhance() {
+    return async ({ result }: { result: any }) => {
+      if (result?.type === 'success' || result?.type === 'redirect') {
+        approveModalOpen = false;
+      }
+      await applyAction(result);
+    };
+  }
+
+  function handleDeactivateEnhance() {
+    return async ({ result }: { result: any }) => {
+      if (result?.type === 'success' || result?.type === 'redirect') {
+        deactivateModalOpen = false;
+      }
+      await applyAction(result);
+    };
+  }
 </script>
 
 <svelte:head>
@@ -71,7 +139,7 @@
             <Button type="submit" variant="secondary" label="Marcar en revisión" />
           </form>
         {/if}
-        <Button variant="primary" icon="XCircle" label="Rechazar" onclick={() => rejectModalOpen = true} />
+        <Button variant="primary" icon="XCircle" label="Rechazar" onclick={openRejectModal} />
       {/if}
       {#if c.normalizedTrajectoryStatus === 'contactado' && c.activacionPendiente}
         <Button variant="primary" icon="CheckCircle" label="Reenviar activación" onclick={() => approveModalOpen = true} />
@@ -129,7 +197,7 @@
   </p>
   {#snippet footer()}
     <Button variant="secondary" onclick={() => approveModalOpen = false} label="Cancelar" />
-    <form method="POST" action="?/approve" use:enhance>
+    <form method="POST" action="?/approve" use:enhance={handleApproveEnhance}>
       <Button type="submit" variant="primary" icon="CheckCircle" label={c.normalizedTrajectoryStatus === 'contactado' ? 'Reenviar activación' : 'Confirmar aprobación'} />
     </form>
   {/snippet}
@@ -139,8 +207,19 @@
   <p class="text-sm text-[--text-secondary]">
     Se eliminará el registro del colaborador y cualquier habilidad que quede huérfana tras el rechazo.
   </p>
-  <form method="POST" action="?/reject" use:enhance class="mt-3">
-    <textarea name="reason" placeholder="Motivo del rechazo..." rows={3} class="w-full text-sm border border-[--border] rounded-lg p-2.5 resize-none"></textarea>
+  <form method="POST" action="?/reject" use:enhance={handleRejectEnhance} class="mt-3 space-y-3">
+    <FormErrorSummary message={rejectTopError} onDismiss={() => (rejectTopError = '')} />
+    <FormField
+      name="reason"
+      type="textarea"
+      label="Motivo del rechazo"
+      bind:value={rejectReason}
+      rows={4}
+      counter={COLLAB_LIMITS.rejectReason.max}
+      hint={`Opcional. Máximo ${COLLAB_LIMITS.rejectReason.max} caracteres.`}
+      error={rejectErrors.reason}
+      touched={rejectTouched}
+    />
     <div class="mt-3 flex justify-end gap-2">
       <Button variant="secondary" type="button" onclick={() => rejectModalOpen = false} label="Cancelar" />
       <Button type="submit" variant="danger" icon="XCircle" label="Confirmar rechazo" />
@@ -153,12 +232,12 @@
     ¿Estás seguro de que deseas desactivar a <strong>{c.firstName}</strong>?
     Esto cambiará su estado a <StatusBadge status="inactivo" /> y no podrá iniciar sesión.
   </p>
-  <form method="POST" action="?/deactivate" use:enhance class="mt-3">
-    <textarea name="rejection_note" placeholder="Razón de la desactivación..." rows={2} class="w-full text-sm border border-[--border] rounded-lg p-2.5 resize-none"></textarea>
-  </form>
+  <p class="mt-3 text-xs text-[--text-muted]">
+    Esta acción no registra una nota adicional desde esta pantalla; solo cambia el estado del colaborador.
+  </p>
   {#snippet footer()}
     <Button variant="primary" onclick={() => deactivateModalOpen = false} label="Cancelar" />
-    <form method="POST" action="?/deactivate" use:enhance>
+    <form method="POST" action="?/deactivate" use:enhance={handleDeactivateEnhance}>
       <Button type="submit" variant="primary" label="Confirmar desactivación" />
     </form>
   {/snippet}

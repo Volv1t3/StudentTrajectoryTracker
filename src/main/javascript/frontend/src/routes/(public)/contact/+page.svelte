@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
   import { CheckCircle } from 'lucide-svelte';
   import { capture } from '$lib/utils/posthog';
   import FormField from '$lib/components/ui/FormField.svelte';
@@ -7,6 +8,10 @@
   import Button from '$lib/components/ui/Button.svelte';
   import InfoRow from '$lib/components/ui/InfoRow.svelte';
   import PageHero from '$lib/components/layout/PageHero.svelte';
+  import FormErrorSummary from '$lib/components/ui/FormErrorSummary.svelte';
+  import { validateContactForm, CONTACT_LIMITS } from '$lib/validation/contact';
+  import { extractApiError, mapBackendFields, summarizeFormError } from '$lib/validation/apiError';
+  import { contactFieldMap } from '$lib/validation/fieldMaps';
 
   interface Content {
     first_name?: string;
@@ -26,6 +31,70 @@
   }
 
   let { data, form }: Props = $props();
+
+  let nombre = $state('');     // → name
+  let correo = $state('');     // → email
+  let asunto = $state('');     // → subject
+  let mensaje = $state('');    // → message (rich text)
+
+  let touched = $state<Record<string, boolean>>({});
+  let submitAttempted = $state(false);
+  let backendErrors = $state<Record<string, string>>({});
+  let topError = $state('');
+
+  function markTouched(key: string) {
+    if (!touched[key]) touched = { ...touched, [key]: true };
+    if (backendErrors[key]) {
+      const { [key]: _drop, ...rest } = backendErrors;
+      backendErrors = rest;
+    }
+  }
+
+  function stripHtml(s: string) {
+    return s.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+  }
+
+  let mensajePlain = $derived(stripHtml(mensaje));
+
+  let frontErrors = $derived(
+    validateContactForm({
+      name: nombre,
+      email: correo,
+      subject: asunto,
+      message: mensajePlain,
+    }) as Record<string, string>
+  );
+
+  function hasContent(v: unknown): boolean {
+    if (v == null) return false;
+    if (typeof v === 'string') return v.trim() !== '';
+    return true;
+  }
+
+  let show = $derived<Record<string, boolean>>({
+    nombre: touched.nombre || hasContent(nombre) || submitAttempted,
+    correo: touched.correo || hasContent(correo) || submitAttempted,
+    asunto: touched.asunto || hasContent(asunto) || submitAttempted,
+    mensaje: touched.mensaje || mensajePlain.length > 0 || submitAttempted,
+  });
+
+  let errors = $derived<Record<string, string>>({ ...frontErrors, ...backendErrors });
+  let isValid = $derived(Object.keys(frontErrors).length === 0 && mensajePlain.length > 0);
+
+  $effect(() => {
+    if (form?.apiError !== undefined || form?.error !== undefined) {
+      const extracted = extractApiError(form?.apiError ?? form?.error ?? null);
+      const mappedBackendErrors = mapBackendFields(extracted.fields, contactFieldMap);
+      const nextTopError = summarizeFormError(extracted);
+      const nextTouched: Record<string, boolean> = { ...untrack(() => touched) };
+      for (const k of Object.keys(mappedBackendErrors)) nextTouched[k] = true;
+
+      backendErrors = mappedBackendErrors;
+      topError = nextTopError;
+      submitAttempted = true;
+      touched = nextTouched;
+    }
+  });
 
   $effect(() => {
     if (form?.success) {
@@ -47,16 +116,14 @@
   subtitle="¿Tienes preguntas? Estamos para ayudarte."
 />
 
-<!-- Body -->
 <section class="bg py-14 md:py-20">
   <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
     <div class="grid grid-cols-1 md:grid-cols-2 gap-12 items-start">
-      <!-- Contact Info -->
       <div>
         <div class="text-center mb-12">
-      <span class="text-lg uppercase tracking-widest block mb-4" style="color: var(--accent); font-family: var(--font-subheading);">Directorio del D.Lab</span>
-      <div class="w-full h-0.5 mx-auto mb-6" style="background: var(--accent); opacity: 0.3;"></div>
-    </div>
+          <span class="text-lg uppercase tracking-widest block mb-4" style="color: var(--accent); font-family: var(--font-subheading);">Directorio del D.Lab</span>
+          <div class="w-full h-0.5 mx-auto mb-6" style="background: var(--accent); opacity: 0.3;"></div>
+        </div>
         {#if data.content.first_name || data.content.last_name}
           <div class="mb-6 rounded-xl border border-[--border] bg-[--bg-secondary] p-4">
             <p class="text-sm font-semibold text-[--text-primary]">
@@ -71,40 +138,24 @@
         {/if}
         <ul class="space-y-5">
           <li>
-            <InfoRow
-              icon="Card"
-              label="Email"
-              value={data.content.contact_email || ''}
-              href="mailto:{data.content.contact_email}"
-            />
+            <InfoRow icon="Card" label="Email" value={data.content.contact_email || ''} href="mailto:{data.content.contact_email}" />
           </li>
           <li>
-            <InfoRow
-              icon="MapPin"
-              label="Ubicación"
-              value={data.content.contact_location || ''}
-            />
+            <InfoRow icon="MapPin" label="Ubicación" value={data.content.contact_location || ''} />
           </li>
           <li>
-            <InfoRow
-              icon="Clock"
-              label="Disponibilidad"
-              value={data.content.contact_availability || ''}
-            />
+            <InfoRow icon="Clock" label="Disponibilidad" value={data.content.contact_availability || ''} />
           </li>
         </ul>
-        
       </div>
 
-      <!-- Contact Form -->
       <div>
-        <div>
         <div class="text-center mb-12">
-      <span class="text-lg uppercase tracking-widest block mb-4" style="color: var(--accent); font-family: var(--font-subheading);">Comunícate con nosotros</span>
-      <div class="w-full h-0.5 mx-auto mb-6" style="background: var(--accent); opacity: 0.3;"></div>
-    </div>
+          <span class="text-lg uppercase tracking-widest block mb-4" style="color: var(--accent); font-family: var(--font-subheading);">Comunícate con nosotros</span>
+          <div class="w-full h-0.5 mx-auto mb-6" style="background: var(--accent); opacity: 0.3;"></div>
+        </div>
         {#if form?.success}
-          <div class="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
+          <div class="bg-green-100 border border-green-200 rounded-xl p-6 text-center">
             <div class="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
               <CheckCircle class="text-green-500" size={28} />
             </div>
@@ -112,21 +163,70 @@
             <p class="text-sm text-green-700 mt-1">Te responderemos lo antes posible.</p>
           </div>
         {:else}
-          {#if form?.error}
-            <div class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
-              {form.error}
-            </div>
-          {/if}
-          <form method="POST" action="?/submitContact" use:enhance class="space-y-4">
-            <FormField name="nombre" label="Ingresa tu Nombre" required placeholder="Tu nombre completo" error={form?.errors?.nombre}/>
-            <FormField name="correo" type="email" label="Ingresa tu correo electrónico" required placeholder="tu@correo.com" error={form?.errors?.correo} />
-            <FormField name="asunto" label="Ingresa el Asunto de tu mensaje" required placeholder="¿En qué podemos ayudarte?" error={form?.errors?.asunto} />
-            <RichTextField name="mensaje" label="Escribe tu mensaje" placeholder="Escribe tu mensaje..." required minHeightClass="min-h-[120px]" />
-            <Button type="submit" variant="primary" fullWidth label="Enviar mensaje" />
+          <FormErrorSummary message={topError} onDismiss={() => (topError = '')} />
+          <form
+            method="POST"
+            action="?/submitContact"
+            use:enhance={({ cancel }) => {
+              submitAttempted = true;
+              if (Object.keys(frontErrors).length > 0) {
+                const next: Record<string, boolean> = {};
+                for (const k of Object.keys(frontErrors)) next[k] = true;
+                touched = { ...touched, ...next };
+                topError = 'Revisa los campos marcados antes de continuar.';
+                cancel();
+                return;
+              }
+              return async ({ update }) => { await update(); };
+            }}
+            class="space-y-4"
+          >
+            <FormField
+              name="nombre"
+              label="Ingresa tu Nombre"
+              required
+              placeholder="Tu nombre completo"
+              bind:value={nombre}
+              counter={CONTACT_LIMITS.name.max}
+              error={errors.nombre || errors.name}
+              touched={show.nombre}
+            />
+            <FormField
+              name="correo"
+              type="email"
+              label="Ingresa tu correo electrónico"
+              required
+              placeholder="tu@correo.com"
+              bind:value={correo}
+              error={errors.correo || errors.email}
+              touched={show.correo}
+            />
+            <FormField
+              name="asunto"
+              label="Ingresa el Asunto de tu mensaje"
+              required
+              placeholder="¿En qué podemos ayudarte?"
+              bind:value={asunto}
+              counter={CONTACT_LIMITS.subject.max}
+              error={errors.asunto || errors.subject}
+              touched={show.asunto}
+            />
+            <RichTextField
+              name="mensaje"
+              label="Escribe tu mensaje"
+              placeholder="Escribe tu mensaje..."
+              required
+              minHeightClass="min-h-[120px]"
+              onchange={(html) => { mensaje = html; markTouched('mensaje'); }}
+              counter={CONTACT_LIMITS.message.max}
+              hint={`Máximo ${CONTACT_LIMITS.message.max} caracteres`}
+              error={errors.mensaje || errors.message}
+              touched={show.mensaje}
+            />
+            <Button type="submit" variant="primary" fullWidth label="Enviar mensaje" disabled={submitAttempted ? ( mensajePlain.length === 0 || asunto.length === 0 || correo.length === 0 || nombre.length === 0 ) : ( !submitAttempted && !isValid)} />
           </form>
         {/if}
       </div>
     </div>
-  </div>
   </div>
 </section>

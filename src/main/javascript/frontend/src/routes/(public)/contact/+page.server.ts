@@ -42,10 +42,22 @@ export const actions: Actions = {
     const email = normalizeEmail(String(form.get('correo') || ''));
     const subject = String(form.get('asunto') || '').trim();
     const message = String(form.get('mensaje') || '').trim();
-    if (!name) return fail(400, { errors: { nombre: 'El nombre es requerido' } });
-    if (!email) return fail(400, { errors: { correo: 'El correo es requerido' } });
-    if (!subject) return fail(400, { errors: { asunto: 'El asunto es requerido' } });
-    if (!message) return fail(400, { errors: { mensaje: 'El mensaje es requerido' } });
+    if (!name) {
+      const msg = 'El nombre es requerido';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { name: msg } } });
+    }
+    if (!email) {
+      const msg = 'El correo es requerido';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { email: msg } } });
+    }
+    if (!subject) {
+      const msg = 'El asunto es requerido';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { subject: msg } } });
+    }
+    if (!message) {
+      const msg = 'El mensaje es requerido';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { message: msg } } });
+    }
 
     const res = await apiPost('/api/public/contact', {
       name,
@@ -55,8 +67,9 @@ export const actions: Actions = {
     });
 
     if (!res.ok) {
-      const msg = (res.data as any)?.error?.message || 'No se pudo enviar el mensaje';
-      return fail(res.status, { error: msg });
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'No se pudo enviar el mensaje';
+      return fail(res.status, { error: msg, apiError });
     }
 
     return { success: true };

@@ -14,15 +14,27 @@ export const actions: Actions = {
     const token = form.get('token') as string;
     const password = form.get('password') as string;
 
-    if (!token || !password) return fail(400, { error: 'Token y contraseña requeridos' });
+    if (!token || !password) {
+      const msg = 'Token y contraseña requeridos';
+      return fail(400, {
+        error: msg,
+        apiError: { code: 'ERR_VALIDATION', message: msg, fields: { token: !token ? 'Token requerido' : '', password: !password ? 'Contraseña requerida' : '' } },
+      });
+    }
     const passwordError = validatePasswordPolicy(password);
-    if (passwordError) return fail(400, { error: passwordError, errors: { password: passwordError } });
+    if (passwordError) {
+      return fail(400, {
+        error: passwordError,
+        apiError: { code: 'ERR_VALIDATION', message: passwordError, fields: { password: passwordError } },
+      });
+    }
 
     const res = await apiPost('/api/auth/activate', { token, password });
 
     if (!res.ok) {
-      const msg = (res.data as any)?.error?.message || 'Token inválido o expirado';
-      return fail(res.status, { error: msg });
+      const apiError = (res.data as any)?.error ?? null;
+      const msg = apiError?.message || 'Token inválido o expirado';
+      return fail(res.status, { error: msg, apiError });
     }
 
     throw redirect(303, '/login?message=activated');

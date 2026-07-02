@@ -23,6 +23,7 @@ type AdminApplicationApi = Application & {
   responsible_admin_id?: number | null;
   responsible_admin_name?: string | null;
   responsible_admin_email?: string | null;
+  role_in_project?: string | null;
 };
 
 type ApplicationListResponse = {
@@ -86,6 +87,7 @@ export const load: PageServerLoad = async ({ cookies, url }) => {
     responsible_admin_id: app.responsible_admin_id || null,
     responsible_admin_name: app.responsible_admin_name || 'Sin responsable',
     responsible_admin_email: app.responsible_admin_email || null,
+    role_in_project: app.role_in_project
   }));
 
   const projects = (projectsRes.ok ? projectsRes.data.data : []).map((project) => ({
@@ -132,7 +134,13 @@ export const actions: Actions = {
     if (role_in_project) body.role_in_project = role_in_project;
 
     const res = await apiPatch(`/api/admin/applications/${id}/status`, body, token);
-    if (!res.ok) return fail(res.status, { error: getErrorMessage(res.data, 'No se pudo aprobar la solicitud') });
+    if (!res.ok) {
+      const apiError = (res.data as ApiErrorResponse | null)?.error ?? null;
+      return fail(res.status, {
+        error: getErrorMessage(res.data, 'No se pudo aprobar la solicitud'),
+        apiError,
+      });
+    }
     return { success: true };
   },
 
@@ -143,7 +151,11 @@ export const actions: Actions = {
     const admin_notes = String(form.get('admin_notes') || '').trim();
 
     if (!admin_notes) {
-      return fail(400, { error: 'El motivo de rechazo es obligatorio' });
+      const msg = 'El motivo de rechazo es obligatorio';
+      return fail(400, {
+        error: msg,
+        apiError: { code: 'ERR_VALIDATION', message: msg, fields: { admin_notes: msg } },
+      });
     }
 
     const res = await apiPatch(
@@ -151,7 +163,13 @@ export const actions: Actions = {
       { status: 'Rechazada', admin_notes },
       token,
     );
-    if (!res.ok) return fail(res.status, { error: getErrorMessage(res.data, 'No se pudo rechazar la solicitud') });
+    if (!res.ok) {
+      const apiError = (res.data as ApiErrorResponse | null)?.error ?? null;
+      return fail(res.status, {
+        error: getErrorMessage(res.data, 'No se pudo rechazar la solicitud'),
+        apiError,
+      });
+    }
     return { success: true };
   },
   setInReview: async ({ request, cookies }) => {
@@ -163,7 +181,13 @@ export const actions: Actions = {
     if (admin_notes) body.admin_notes = admin_notes;
 
     const res = await apiPatch(`/api/admin/applications/${id}/status`, body, token);
-    if (!res.ok) return fail(res.status, { error: getErrorMessage(res.data, 'No se pudo actualizar la solicitud') });
+    if (!res.ok) {
+      const apiError = (res.data as ApiErrorResponse | null)?.error ?? null;
+      return fail(res.status, {
+        error: getErrorMessage(res.data, 'No se pudo actualizar la solicitud'),
+        apiError,
+      });
+    }
     return { success: true };
   },
 };

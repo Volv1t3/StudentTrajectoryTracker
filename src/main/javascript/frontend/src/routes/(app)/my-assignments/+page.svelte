@@ -140,7 +140,7 @@ type MeetingDay = {
               {/if}
               {#if assignment.end_reason}
                 <p class="mt-2 text-xs bg-blue-50 border border-blue-100 text-blue-800 rounded-lg px-3 py-2.5">
-                  <span class="font-semibold">Motivo: </span>{assignment.end_reason}
+                  <span class="font-semibold">Motivo: </span>{@html assignment.end_reason}
                 </p>
               {/if}
             </div>

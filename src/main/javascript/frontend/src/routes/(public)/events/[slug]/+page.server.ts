@@ -13,7 +13,7 @@ export const load: PageServerLoad = async ({ params }) => {
     id: e.id,
     nombre: e.title,
     slug: e.slug,
-    tipo: e.type,
+    tipo: e.type === "Día_De_Demostración"? 'Día de Demostración': e.type,
     descripcion_corta: e.short_description,
     descripcion_larga: e.full_description,
     audiencia_objetivo: e.target_audience || undefined,

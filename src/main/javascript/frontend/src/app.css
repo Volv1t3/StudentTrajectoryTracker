@@ -114,7 +114,7 @@
     --bg-secondary: #0a0a0a;
     --text-primary: #faf3e9;
     --text-secondary: #d4c8b8;
-    --text-muted: #ffffff;
+    --text-muted: #888888;
     --border: #222222;
     --accent: #ff4d4d;
     --accent-hover: #e63e3e;
@@ -170,7 +170,7 @@
   --bg-secondary: #0a0a0a;
   --text-primary: #faf3e9;
   --text-secondary: #d4c8b8;
-  --text-muted: #ffffff;
+  --text-muted: #888888;
   --border: #222222;
   --accent: #ff4d4d;
   --accent-hover: #e63e3e;

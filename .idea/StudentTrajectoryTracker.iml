@@ -5,6 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$/src/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/src/main/javascript/backend/scripts" />
       <excludeFolder url="file://$MODULE_DIR$/src/main/javascript/frontend/.svelte-kit" />
+      <excludeFolder url="file://$MODULE_DIR$/src/main/javascript/frontend/scripts" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

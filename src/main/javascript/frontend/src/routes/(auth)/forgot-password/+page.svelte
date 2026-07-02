@@ -4,6 +4,10 @@
   import { PASSWORD_POLICY_HINT } from '$lib/utils/password';
   import FormField from '$lib/components/ui/FormField.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import FormErrorSummary from '$lib/components/ui/FormErrorSummary.svelte';
+  import { validateForgotPasswordForm, validateResetPasswordForm } from '$lib/validation/auth';
+  import { extractApiError, mapBackendFields, summarizeFormError } from '$lib/validation/apiError';
+  import { authFieldMap } from '$lib/validation/fieldMaps';
 
   interface Props {
     data: { token?: string };
@@ -13,8 +17,58 @@
   let { data, form }: Props = $props();
   let isResetMode = $derived(Boolean(data?.token));
 
-  // No canonical event for password recovery in the agreed taxonomy.
-  // The legacy `password_reset_requested` event was removed (no parallel names).
+  // Forgot-password state
+  let forgotEmail = $state('');
+
+  // Reset-password state
+  let newPassword = $state('');
+  let confirmPassword = $state('');
+
+  let touched = $state<Record<string, boolean>>({});
+  let submitAttempted = $state(false);
+  let backendErrors = $state<Record<string, string>>({});
+  let topError = $state('');
+
+  let forgotErrors = $derived(
+    validateForgotPasswordForm({ email: forgotEmail }) as Record<string, string>
+  );
+
+  let resetErrors = $derived(
+    validateResetPasswordForm({
+      token: data?.token || '',
+      new_password: newPassword,
+      confirm: confirmPassword,
+    }) as Record<string, string>
+  );
+
+  let frontErrors = $derived(isResetMode ? resetErrors : forgotErrors);
+
+  function hasContent(v: unknown): boolean {
+    if (v == null) return false;
+    if (typeof v === 'string') return v.trim() !== '';
+    return true;
+  }
+
+  let show = $derived<Record<string, boolean>>({
+    correo: touched.correo || hasContent(forgotEmail) || submitAttempted,
+    nueva_contrasena: touched.nueva_contrasena || hasContent(newPassword) || submitAttempted,
+    confirmar_contrasena: touched.confirmar_contrasena || hasContent(confirmPassword) || submitAttempted,
+  });
+
+  let errors = $derived<Record<string, string>>({ ...frontErrors, ...backendErrors });
+  let isValid = $derived(Object.keys(frontErrors).length === 0);
+
+  $effect(() => {
+    if (form?.apiError !== undefined || form?.error !== undefined) {
+      const extracted = extractApiError(form?.apiError ?? form?.error ?? null);
+      backendErrors = mapBackendFields(extracted.fields, authFieldMap);
+      topError = summarizeFormError(extracted);
+      submitAttempted = true;
+      const next: Record<string, boolean> = { ...touched };
+      for (const k of Object.keys(backendErrors)) next[k] = true;
+      touched = next;
+    }
+  });
 </script>
 
 <svelte:head>
@@ -48,20 +102,79 @@
         </p>
       </div>
     {:else}
+      {#if topError}
+        <FormErrorSummary message={topError} onDismiss={() => (topError = '')} />
+      {/if}
       {#if isResetMode}
-        <form method="POST" action="?/resetPassword" use:enhance class="space-y-4">
+        <form
+          method="POST"
+          action="?/resetPassword"
+          use:enhance={({ cancel }) => {
+            submitAttempted = true;
+            if (Object.keys(frontErrors).length > 0) {
+              const next: Record<string, boolean> = {};
+              for (const k of Object.keys(frontErrors)) next[k] = true;
+              touched = { ...touched, ...next };
+              topError = 'Revisa los campos marcados antes de continuar.';
+              cancel();
+              return;
+            }
+            return async ({ update }) => { await update(); };
+          }}
+          class="space-y-4"
+        >
           <input type="hidden" name="token" value={data.token || ''} />
-          <FormField name="password" type="password" label="Nueva contraseña" required hint={PASSWORD_POLICY_HINT} />
-          <FormField name="confirm" type="password" label="Confirmar contraseña" required />
-          {#if form?.error}
-            <p class="text-sm text-red-600">{form.error}</p>
-          {/if}
-          <Button type="submit" variant="primary" fullWidth label="Actualizar contraseña" />
+          <FormField
+            name="password"
+            type="password"
+            label="Nueva contraseña"
+            required
+            hint={PASSWORD_POLICY_HINT}
+            bind:value={newPassword}
+            error={errors.nueva_contrasena || errors.new_password || errors.password}
+            touched={show.nueva_contrasena}
+          />
+          <FormField
+            name="confirm"
+            type="password"
+            label="Confirmar contraseña"
+            required
+            bind:value={confirmPassword}
+            error={errors.confirmar_contrasena || errors.confirm}
+            touched={show.confirmar_contrasena}
+          />
+          <Button type="submit" variant="primary" fullWidth label="Actualizar contraseña" disabled={submitAttempted && !isValid} />
         </form>
       {:else}
-        <form method="POST" action="?/forgotPassword" use:enhance class="space-y-4">
-          <FormField name="email" type="email" label="Correo institucional" required placeholder="tu.nombre@estud.usfq.edu.ec" hint="Debe terminar en .usfq.edu.ec" />
-          <Button type="submit" variant="primary" fullWidth label="Enviar enlace" />
+        <form
+          method="POST"
+          action="?/forgotPassword"
+          use:enhance={({ cancel }) => {
+            submitAttempted = true;
+            if (Object.keys(frontErrors).length > 0) {
+              const next: Record<string, boolean> = {};
+              for (const k of Object.keys(frontErrors)) next[k] = true;
+              touched = { ...touched, ...next };
+              topError = 'Revisa los campos marcados antes de continuar.';
+              cancel();
+              return;
+            }
+            return async ({ update }) => { await update(); };
+          }}
+          class="space-y-4"
+        >
+          <FormField
+            name="email"
+            type="email"
+            label="Correo institucional"
+            required
+            placeholder="tu.nombre@estud.usfq.edu.ec"
+            hint="Debe terminar en .usfq.edu.ec"
+            bind:value={forgotEmail}
+            error={errors.correo || errors.email}
+            touched={show.correo}
+          />
+          <Button type="submit" variant="primary" fullWidth label="Enviar enlace" disabled={submitAttempted && !isValid} />
         </form>
       {/if}
     {/if}

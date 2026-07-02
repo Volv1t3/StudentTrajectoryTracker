@@ -20,6 +20,8 @@ export interface AssignmentRow extends Assignment {
   project_title: string;
   project_slug: string;
   assigned_by_admin_name?: string | null;
+  assignment_reason?: string | null;
+  assignment_admin_notes?: string | null;
 }
 
 export interface AssignmentSummary {

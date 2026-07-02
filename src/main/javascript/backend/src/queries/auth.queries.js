@@ -56,8 +56,11 @@ export const markActivationTokenUsed = (tokenHash) =>
   pool.execute('UPDATE activation_tokens SET used_at = NOW() WHERE token_hash = ?', [tokenHash]);
 
 // Password reset tokens - raw SQL
-export const storeResetToken = ({ collaboratorId, tokenHash, expiresAt }) =>
-  pool.execute('INSERT INTO password_reset_tokens (collaborator_id, token_hash, expires_at) VALUES (?, ?, ?)', [collaboratorId, tokenHash, expiresAt]);
+export const storeResetToken = ({ collaboratorId = null, administratorId = null, tokenHash, expiresAt }) =>
+  pool.execute(
+    'INSERT INTO password_reset_tokens (collaborator_id, administrator_id, token_hash, expires_at) VALUES (?, ?, ?, ?)',
+    [collaboratorId, administratorId, tokenHash, expiresAt]
+  );
 
 export const findResetToken = async (tokenHash) => {
   const [rows] = await pool.execute('SELECT * FROM password_reset_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW()', [tokenHash]);

@@ -41,12 +41,12 @@ BEGIN
   DECLARE v_notes      VARCHAR(200);
 
   -- Duplicate email guard
-  IF EXISTS (SELECT 1 FROM collaborators WHERE personal_email = p_personal_email) THEN
-    SIGNAL SQLSTATE '45001' SET MESSAGE_TEXT = 'personal_email already registered';
-  END IF;
-
   IF p_usfq_email IS NOT NULL AND
-     EXISTS (SELECT 1 FROM collaborators WHERE usfq_email = p_usfq_email) THEN
+     EXISTS (
+       SELECT 1
+       FROM collaborators
+       WHERE usfq_email COLLATE utf8mb4_unicode_ci = p_usfq_email COLLATE utf8mb4_unicode_ci
+     ) THEN
     SIGNAL SQLSTATE '45002' SET MESSAGE_TEXT = 'usfq_email already registered';
   END IF;
 

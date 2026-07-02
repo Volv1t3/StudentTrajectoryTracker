@@ -74,7 +74,10 @@ export const actions: Actions = {
   markInReview: async ({ params, cookies }) => {
     const token = getAdminAccessToken(cookies)!;
     const res = await apiPatch(`/api/admin/collaborators/${params.id}/status`, { status: 'En_Revisión' }, token);
-    if (!res.ok) return fail(res.status, { error: (res.data as any)?.error?.message || 'Error' });
+    if (!res.ok) {
+      const apiError = (res.data as any)?.error ?? null;
+      return fail(res.status, { error: apiError?.message || 'Error', apiError });
+    }
     throw redirect(303, `/admin/colaboradores/${params.id}`);
   },
 
@@ -82,16 +85,25 @@ export const actions: Actions = {
     const token = getAdminAccessToken(cookies)!;
     const form = await request.formData();
     const note = form.get('note') as string;
-    if (!note) return fail(400, { error: 'Nota requerida' });
+    if (!note) {
+      const msg = 'La nota es obligatoria';
+      return fail(400, { error: msg, apiError: { code: 'ERR_VALIDATION', message: msg, fields: { note: msg } } });
+    }
     const res = await apiPost(`/api/admin/collaborators/${params.id}/notes`, { note }, token);
-    if (!res.ok) return fail(res.status, { error: (res.data as any)?.error?.message || 'Error' });
+    if (!res.ok) {
+      const apiError = (res.data as any)?.error ?? null;
+      return fail(res.status, { error: apiError?.message || 'Error', apiError });
+    }
     return { success: true };
   },
 
   approve: async ({ params, cookies }) => {
     const token = getAdminAccessToken(cookies)!;
     const res = await apiPost(`/api/admin/collaborators/${params.id}/approve`, {}, token);
-    if (!res.ok) return fail(res.status, { error: (res.data as any)?.error?.message || 'Error' });
+    if (!res.ok) {
+      const apiError = (res.data as any)?.error ?? null;
+      return fail(res.status, { error: apiError?.message || 'Error', apiError });
+    }
     throw redirect(303, `/admin/colaboradores/${params.id}`);
   },
 
@@ -100,14 +112,20 @@ export const actions: Actions = {
     const form = await request.formData();
     const reason = String(form.get('reason') || '').trim();
     const res = await apiPost(`/api/admin/collaborators/${params.id}/reject`, { reason }, token);
-    if (!res.ok) return fail(res.status, { error: (res.data as any)?.error?.message || 'Error' });
+    if (!res.ok) {
+      const apiError = (res.data as any)?.error ?? null;
+      return fail(res.status, { error: apiError?.message || 'Error', apiError });
+    }
     throw redirect(303, '/admin/colaboradores');
   },
 
   deactivate: async ({ params, cookies }) => {
     const token = getAdminAccessToken(cookies)!;
     const res = await apiPatch(`/api/admin/collaborators/${params.id}/status`, { status: 'Inactivo' }, token);
-    if (!res.ok) return fail(res.status, { error: (res.data as any)?.error?.message || 'Error' });
+    if (!res.ok) {
+      const apiError = (res.data as any)?.error ?? null;
+      return fail(res.status, { error: apiError?.message || 'Error', apiError });
+    }
     throw redirect(303, `/admin/colaboradores/${params.id}`);
   },
 };

@@ -65,7 +65,6 @@ CREATE TABLE IF NOT EXISTS collaborators (
   created_at                  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at                  TIMESTAMP        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_collaborators_personal_email (personal_email),
   UNIQUE KEY uq_collaborators_usfq_email     (usfq_email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -638,7 +637,8 @@ CREATE TABLE IF NOT EXISTS activation_tokens (
 
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
   id               INT UNSIGNED  NOT NULL AUTO_INCREMENT,
-  collaborator_id  INT UNSIGNED  NOT NULL,
+  collaborator_id  INT UNSIGNED  NULL,
+  administrator_id INT UNSIGNED  NULL COMMENT 'ID de administrador si el password reset es para administradores',
   token_hash       VARCHAR(255)  NOT NULL,
   expires_at       TIMESTAMP     NOT NULL,
   is_used          BOOLEAN       NOT NULL DEFAULT FALSE,
@@ -647,7 +647,9 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
   PRIMARY KEY (id),
   INDEX idx_reset_token_hash (token_hash),
   CONSTRAINT fk_reset_collaborator FOREIGN KEY (collaborator_id)
-    REFERENCES collaborators (id) ON DELETE CASCADE
+    REFERENCES collaborators (id) ON DELETE CASCADE,
+  CONSTRAINT fk_reset_administrators FOREIGN KEY (administrator_id)
+    REFERENCES administrators (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================================
@@ -927,13 +929,6 @@ BEGIN
   DECLARE v_notes      VARCHAR(200);
 
   -- Duplicate email guard
-  IF EXISTS (
-    SELECT 1
-    FROM collaborators
-    WHERE personal_email COLLATE utf8mb4_unicode_ci = p_personal_email COLLATE utf8mb4_unicode_ci
-  ) THEN
-    SIGNAL SQLSTATE '45001' SET MESSAGE_TEXT = 'personal_email already registered';
-  END IF;
 
   IF p_usfq_email IS NOT NULL AND
      EXISTS (
